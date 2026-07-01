@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.db
+.venv/
+*.sqlite3
+akichance.db
