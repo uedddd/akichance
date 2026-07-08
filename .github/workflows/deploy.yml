@@ -1,0 +1,61 @@
+name: Deploy Python to Azure Web App - akichance
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Pythonのセットアップ
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 依存関係のインストール
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ビルド成果物を次のジョブに渡す
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: |
+            .
+            !.git/
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      # ビルド成果物のダウンロード
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-app
+
+      # Azureにログイン
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_CAF9EDE978F74CBBA61FD25D090069A1 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_8469DC04EF7C48918F2381D6A6C7DE8A }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_346FA92A1E744580BCEAD511B41D6028 }}
+
+      # App Serviceにデプロイ
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'akichance'
+          package: '.'

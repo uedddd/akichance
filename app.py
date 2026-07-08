@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Iterator, List, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, EmailStr, Field
 
-DB_PATH = Path(__file__).resolve().parent / "akichance.db"
+DB_PATH = Path(os.getenv("AKICHANCE_DB_PATH", Path(__file__).resolve().parent / "akichance.db"))
 
 app = FastAPI(
     title="Akichance Reservation / Seat Management API",
