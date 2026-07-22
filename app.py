@@ -23,15 +23,33 @@ from __future__ import annotations
 
 # OSの環境変数を取得するための標準ライブラリ
 import os
+from pathlib import Path
+
+# .env ファイルを読み込むためのライブラリ
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
 # 日時データを扱うための標準ライブラリ
 from datetime import datetime
+
+# 文字列をバイナリへ変換して Azure SQL の Entra トークンを送るための標準ライブラリ
+import struct
 
 # 型ヒント用: ジェネレータ・リスト・Optional型のサポート
 from typing import Iterator, List, Optional
 
 # SQL Server / Azure SQL への接続ライブラリ（pip install pyodbc）
 import pyodbc
+
+# Azure Entra ID 認証（サービスプリンシパル）
+from azure.identity import ClientSecretCredential
+
+# .env ファイルを読み込む
+env_file = Path(__file__).parent / ".env"
+if env_file.exists() and load_dotenv is not None:
+    load_dotenv(env_file)
 
 # FastAPI本体・依存性注入・HTTPエラー・クエリパラメータ
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -50,30 +68,52 @@ AZURE_SQL_SERVER: str = os.getenv("AZURE_SQL_SERVER", "akichanceserver.database.
 # 接続先のデータベース名を環境変数から取得する
 AZURE_SQL_DATABASE: str = os.getenv("AZURE_SQL_DATABASE", "akichanceDB")  
 
-# Azure SQLの認証ユーザー名を環境変数から取得する
-AZURE_SQL_USERNAME: str = os.getenv("AZURE_SQL_USERNAME", "g735218@mytecno23.onmicrosoft.com")
-
-# Azure SQLの認証パスワードを環境変数から取得する
-AZURE_SQL_PASSWORD: str = os.getenv("AZURE_SQL_PASSWORD", "")
+# Azure SQL のサービスプリンシパル認証設定
+AZURE_CLIENT_ID: str = os.getenv("AZURE_CLIENT_ID", "")
+AZURE_CLIENT_SECRET: str = os.getenv("AZURE_CLIENT_SECRET", "")
+AZURE_TENANT_ID: str = os.getenv("AZURE_TENANT_ID", "")
 
 # 使用するODBCドライバー名を環境変数から取得する
 # Azure環境では "ODBC Driver 18 for SQL Server" が推奨される
 AZURE_SQL_DRIVER: str = os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server")
 
-# 上記の設定値を組み合わせてODBC接続文字列を生成する
-# Encrypt=yes        : Azure SQL は暗号化通信が必須
-# TrustServerCertificate=no : 本番環境では証明書を検証する
-# Connection Timeout : 接続タイムアウトを30秒に設定する
+# 接続文字列の共通部分を生成する
 CONNECTION_STRING: str = (
     f"DRIVER={{{AZURE_SQL_DRIVER}}};"
     f"SERVER={AZURE_SQL_SERVER};"
     f"DATABASE={AZURE_SQL_DATABASE};"
-    f"UID={AZURE_SQL_USERNAME};"
-    f"PWD={AZURE_SQL_PASSWORD};"
     "Encrypt=yes;"
     "TrustServerCertificate=no;"
     "Connection Timeout=30;"
 )
+
+
+def get_token_struct() -> bytes:
+    """
+    Azure SQL へ Service Principal 認証で接続するためのアクセストークンを
+    pyodbc の attrs_before 形式に変換して返す。
+    """
+    if not all([AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID]):
+        raise RuntimeError(
+            "AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID が設定されていません"
+        )
+
+    credential = ClientSecretCredential(
+        tenant_id=AZURE_TENANT_ID,
+        client_id=AZURE_CLIENT_ID,
+        client_secret=AZURE_CLIENT_SECRET,
+    )
+
+    token = credential.get_token("https://database.windows.net/.default")
+    token_bytes = token.token.encode("utf-16-le")
+    return struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+
+
+def open_connection() -> pyodbc.Connection:
+    """
+    Azure SQL へ接続する pyodbc コネクションを生成する。
+    """
+    return pyodbc.connect(CONNECTION_STRING, attrs_before={1256: get_token_struct()})
 
 # ---------------------------------------------------------------------------
 # FastAPIアプリケーションの初期化
@@ -184,8 +224,8 @@ def get_connection() -> Iterator[pyodbc.Connection]:
     Azure SQLへの接続を生成し、FastAPIの依存性注入に提供するジェネレータ関数。
     yieldの前後でリクエストのライフサイクルに合わせた接続管理を行う。
     """
-    # CONNECTION_STRINGを使ってAzure SQLに接続する
-    connection = pyodbc.connect(CONNECTION_STRING)
+    # Entra 認証済みトークンをつけて Azure SQL に接続する
+    connection = open_connection()
 
     # pyodbc はデフォルトで自動コミットが無効のため明示的に無効化を宣言する
     # これによりcommit()/rollback()で手動トランザクション管理が可能になる
@@ -222,9 +262,11 @@ def init_db() -> None:
     """
     アプリケーション起動時にDBテーブルを初期化する関数。
     テーブルが存在しない場合のみ作成する（既存データは保持される）。
+    ただし、サービスプリンシパルにCREATE TABLE権限がない場合は
+    起動時エラーにせず警告のみで続行する。
     """
     # アプリ起動専用の接続を生成する（get_connectionとは別に直接接続）
-    connection = pyodbc.connect(CONNECTION_STRING)
+    connection = open_connection()
 
     # DDL文は自動コミットモードで実行する必要がある
     # Azure SQL ではCREATE TABLEなどのDDLはトランザクション外で実行することが推奨される
@@ -233,58 +275,68 @@ def init_db() -> None:
     # カーソルを生成してSQLを実行できる状態にする
     cursor = connection.cursor()
 
-    # seatsテーブルが存在しない場合のみ作成する
-    # Azure SQL(T-SQL)ではIF NOT EXISTS構文がないため
-    # INFORMATION_SCHEMA.TABLESを使ってテーブルの存在確認を行う
-    cursor.execute(
-        """
-        IF NOT EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
-            WHERE TABLE_NAME = 'seats'
-        )
-        BEGIN
-            CREATE TABLE seats (
-                id          INT IDENTITY(1,1) PRIMARY KEY,
-                seat_number NVARCHAR(100) NOT NULL UNIQUE,
-                zone        NVARCHAR(100),
-                is_active   BIT NOT NULL DEFAULT 1,
-                description NVARCHAR(MAX)
+    try:
+        # seatsテーブルが存在しない場合のみ作成する
+        # Azure SQL(T-SQL)ではIF NOT EXISTS構文がないため
+        # INFORMATION_SCHEMA.TABLESを使ってテーブルの存在確認を行う
+        cursor.execute(
+            """
+            IF NOT EXISTS (
+                SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_NAME = 'seats'
             )
-        END
-        """
-        # IDENTITY(1,1)  : 1から始まり1ずつ増加する自動採番（PostgreSQLのSERIALに相当）
-        # NVARCHAR       : Unicodeに対応した可変長文字列型（日本語対応）
-        # BIT            : 0/1の2値型（PostgreSQLのBOOLEAN、SQLiteのINTEGERに相当）
-        # NVARCHAR(MAX)  : 最大2GBまで格納できる大容量文字列型
-    )
-
-    # reservationsテーブルが存在しない場合のみ作成する
-    cursor.execute(
-        """
-        IF NOT EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
-            WHERE TABLE_NAME = 'reservations'
+            BEGIN
+                CREATE TABLE seats (
+                    id          INT IDENTITY(1,1) PRIMARY KEY,
+                    seat_number NVARCHAR(100) NOT NULL UNIQUE,
+                    zone        NVARCHAR(100),
+                    is_active   BIT NOT NULL DEFAULT 1,
+                    description NVARCHAR(MAX)
+                )
+            END
+            """
+            # IDENTITY(1,1)  : 1から始まり1ずつ増加する自動採番（PostgreSQLのSERIALに相当）
+            # NVARCHAR       : Unicodeに対応した可変長文字列型（日本語対応）
+            # BIT            : 0/1の2値型（PostgreSQLのBOOLEAN、SQLiteのINTEGERに相当）
+            # NVARCHAR(MAX)  : 最大2GBまで格納できる大容量文字列型
         )
-        BEGIN
-            CREATE TABLE reservations (
-                id         INT IDENTITY(1,1) PRIMARY KEY,
-                user_name  NVARCHAR(200) NOT NULL,
-                email      NVARCHAR(254) NOT NULL,
-                seat_id    INT NOT NULL,
-                start_time DATETIME2 NOT NULL,
-                end_time   DATETIME2 NOT NULL,
-                status     NVARCHAR(50) NOT NULL,
-                FOREIGN KEY (seat_id) REFERENCES seats(id)
-            )
-        END
-        """
-        # DATETIME2: T-SQLの高精度日時型（タイムゾーンなし、精度は最大100ナノ秒）
-        # タイムゾーン付きで保存する場合はDATETIMEOFFSETを使用する
-        # email用のNVARCHAR(254)はRFC 5321のメールアドレス最大長に準拠
-    )
 
-    # DDL自動コミットモードのため明示的なcommitは不要だが、接続を閉じる
-    connection.close()
+        # reservationsテーブルが存在しない場合のみ作成する
+        cursor.execute(
+            """
+            IF NOT EXISTS (
+                SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_NAME = 'reservations'
+            )
+            BEGIN
+                CREATE TABLE reservations (
+                    id         INT IDENTITY(1,1) PRIMARY KEY,
+                    user_name  NVARCHAR(200) NOT NULL,
+                    email      NVARCHAR(254) NOT NULL,
+                    seat_id    INT NOT NULL,
+                    start_time DATETIME2 NOT NULL,
+                    end_time   DATETIME2 NOT NULL,
+                    status     NVARCHAR(50) NOT NULL,
+                    FOREIGN KEY (seat_id) REFERENCES seats(id)
+                )
+            END
+            """
+            # DATETIME2: T-SQLの高精度日時型（タイムゾーンなし、精度は最大100ナノ秒）
+            # タイムゾーン付きで保存する場合はDATETIMEOFFSETを使用する
+            # email用のNVARCHAR(254)はRFC 5321のメールアドレス最大長に準拠
+        )
+    except pyodbc.ProgrammingError as exc:
+        message = str(exc)
+        if "CREATE TABLE permission denied" in message or "permission denied in database" in message:
+            print(
+                "WARNING: Azure SQL user does not have CREATE TABLE permission. "
+                "Skipping schema initialization."
+            )
+        else:
+            raise
+    finally:
+        # DDL自動コミットモードのため明示的なcommitは不要だが、接続を閉じる
+        connection.close()
 
 
 # ---------------------------------------------------------------------------
