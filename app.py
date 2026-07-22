@@ -1,26 +1,55 @@
+# ============================================================
+# Windows 用セットアップ手順
+# ============================================================
+# 
+# 1. ODBC Driver 18 for SQL Server のインストール (Windows)
+#    - https://learn.microsoft.com/ja-jp/sql/connect/odbc/download-odbc-driver-for-sql-server
+#    から ODBC Driver 18 for SQL Server をダウンロードしてインストール
+#    または以下のコマンドで winget を使用してインストール:
+#    winget install Microsoft.ODBCDriver18forSQLServer
+#
+# 2. Python ライブラリのインストール
+#    pip install -r requirements.txt
+#
+# 3. 環境変数の設定（.env ファイル作成または OS の環境変数に設定）
+#    AZURE_SQL_SERVER=akichanceserver.database.windows.net
+#    AZURE_SQL_DATABASE=akichanceDB
+#    AZURE_SQL_USERNAME=g735218@mytecno23.onmicrosoft.com
+#    AZURE_SQL_PASSWORD=your-actual-password
+#
+# ============================================================
 # Python 3.10以前でも `X | Y` 型ヒント構文を使えるようにする将来互換インポート
 from __future__ import annotations
 
 # OSの環境変数を取得するための標準ライブラリ
 import os
+from pathlib import Path
+
+# .env ファイルを読み込むためのライブラリ
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
 # 日時データを扱うための標準ライブラリ
 from datetime import datetime
 
-# ファイルパスをオブジェクト指向で扱うための標準ライブラリ
-from pathlib import Path
+# 文字列をバイナリへ変換して Azure SQL の Entra トークンを送るための標準ライブラリ
+import struct
 
 # 型ヒント用: ジェネレータ・リスト・Optional型のサポート
 from typing import Iterator, List, Optional
 
-# PostgreSQL接続ライブラリ（pip install psycopg2-binary）
-import psycopg2
+# SQL Server / Azure SQL への接続ライブラリ（pip install pyodbc）
+import pyodbc
 
-# psycopg2のカーソルをdict形式で返すためのファクトリ
-from psycopg2.extras import RealDictCursor
+# Azure Entra ID 認証（サービスプリンシパル）
+from azure.identity import ClientSecretCredential
 
-# psycopg2のDB接続型（型ヒント用）
-from psycopg2.extensions import connection as Psycopg2Connection
+# .env ファイルを読み込む
+env_file = Path(__file__).parent / ".env"
+if env_file.exists() and load_dotenv is not None:
+    load_dotenv(env_file)
 
 # FastAPI本体・依存性注入・HTTPエラー・クエリパラメータ
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -32,13 +61,59 @@ from pydantic import BaseModel, EmailStr, Field
 # データベース接続設定
 # ---------------------------------------------------------------------------
 
-# 環境変数 DATABASE_URL からPostgreSQLの接続URLを取得する
-# 未設定の場合はローカル開発用のデフォルト値を使用する
-# 形式: postgresql://ユーザー名:パスワード@ホスト:ポート/DB名
-DATABASE_URL: str = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/akichance"
+# Azure SQL Serverのホスト名を環境変数から取得する
+# 形式: <サーバー名>.database.windows.net
+AZURE_SQL_SERVER: str = os.getenv("AZURE_SQL_SERVER", "akichanceserver.database.windows.net")
+
+# 接続先のデータベース名を環境変数から取得する
+AZURE_SQL_DATABASE: str = os.getenv("AZURE_SQL_DATABASE", "akichanceDB")  
+
+# Azure SQL のサービスプリンシパル認証設定
+AZURE_CLIENT_ID: str = os.getenv("AZURE_CLIENT_ID", "")
+AZURE_CLIENT_SECRET: str = os.getenv("AZURE_CLIENT_SECRET", "")
+AZURE_TENANT_ID: str = os.getenv("AZURE_TENANT_ID", "")
+
+# 使用するODBCドライバー名を環境変数から取得する
+# Azure環境では "ODBC Driver 18 for SQL Server" が推奨される
+AZURE_SQL_DRIVER: str = os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server")
+
+# 接続文字列の共通部分を生成する
+CONNECTION_STRING: str = (
+    f"DRIVER={{{AZURE_SQL_DRIVER}}};"
+    f"SERVER={AZURE_SQL_SERVER};"
+    f"DATABASE={AZURE_SQL_DATABASE};"
+    "Encrypt=yes;"
+    "TrustServerCertificate=no;"
+    "Connection Timeout=30;"
 )
+
+
+def get_token_struct() -> bytes:
+    """
+    Azure SQL へ Service Principal 認証で接続するためのアクセストークンを
+    pyodbc の attrs_before 形式に変換して返す。
+    """
+    if not all([AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID]):
+        raise RuntimeError(
+            "AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID が設定されていません"
+        )
+
+    credential = ClientSecretCredential(
+        tenant_id=AZURE_TENANT_ID,
+        client_id=AZURE_CLIENT_ID,
+        client_secret=AZURE_CLIENT_SECRET,
+    )
+
+    token = credential.get_token("https://database.windows.net/.default")
+    token_bytes = token.token.encode("utf-16-le")
+    return struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+
+
+def open_connection() -> pyodbc.Connection:
+    """
+    Azure SQL へ接続する pyodbc コネクションを生成する。
+    """
+    return pyodbc.connect(CONNECTION_STRING, attrs_before={1256: get_token_struct()})
 
 # ---------------------------------------------------------------------------
 # FastAPIアプリケーションの初期化
@@ -48,8 +123,8 @@ DATABASE_URL: str = os.getenv(
 # title/description/versionはSwagger UI（/docs）に表示される
 app = FastAPI(
     title="Akichance Reservation / Seat Management API",
-    description="Reservation and seat management API for Akichance.",
-    version="2.0.0",
+    description="Reservation and seat management API for Akichance. (Azure SQL)",
+    version="3.0.0",
 )
 
 # ---------------------------------------------------------------------------
@@ -144,73 +219,124 @@ class ReservationUpdate(BaseModel):
 # データベース接続・初期化
 # ---------------------------------------------------------------------------
 
-def get_connection() -> Iterator[Psycopg2Connection]:
+def get_connection() -> Iterator[pyodbc.Connection]:
     """
-    PostgreSQLへの接続を生成し、FastAPIの依存性注入に提供するジェネレータ関数。
+    Azure SQLへの接続を生成し、FastAPIの依存性注入に提供するジェネレータ関数。
     yieldの前後でリクエストのライフサイクルに合わせた接続管理を行う。
     """
-    # DATABASE_URLを使ってPostgreSQLに接続する
-    # cursor_factory=RealDictCursorにより、カーソルの結果を辞書形式で取得できる
-    connection = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    # Entra 認証済みトークンをつけて Azure SQL に接続する
+    connection = open_connection()
+
+    # pyodbc はデフォルトで自動コミットが無効のため明示的に無効化を宣言する
+    # これによりcommit()/rollback()で手動トランザクション管理が可能になる
+    connection.autocommit = False
 
     try:
         # yieldで接続をエンドポイント関数に渡す（コンテキストマネージャ的な役割）
         yield connection
+    except Exception:
+        # 例外が発生した場合はロールバックしてDBの整合性を保つ
+        connection.rollback()
+        # 例外を再送出して FastAPI のエラーハンドラに処理を委譲する
+        raise
     finally:
         # リクエスト処理が完了（正常・例外問わず）したら必ず接続を閉じる
         connection.close()
+
+
+def row_to_dict(cursor: pyodbc.Cursor, row: pyodbc.Row) -> dict:
+    """
+    pyodbcのRowオブジェクトをdictに変換するユーティリティ関数。
+    pyodbcはRealDictCursorのような自動dict変換機能を持たないため、
+    カーソルのdescriptionからカラム名を取得して辞書を生成する。
+    """
+    # cursor.descriptionは[(カラム名, 型, ...), ...]の形式で返る
+    # index 0 がカラム名なので、それをキーとしてrowの値と対応させる
+    columns = [column[0] for column in cursor.description]
+
+    # カラム名と値をzipで対応させてdictを生成する
+    return dict(zip(columns, row))
 
 
 def init_db() -> None:
     """
     アプリケーション起動時にDBテーブルを初期化する関数。
     テーブルが存在しない場合のみ作成する（既存データは保持される）。
+    ただし、サービスプリンシパルにCREATE TABLE権限がない場合は
+    起動時エラーにせず警告のみで続行する。
     """
     # アプリ起動専用の接続を生成する（get_connectionとは別に直接接続）
-    connection = psycopg2.connect(DATABASE_URL)
+    connection = open_connection()
+
+    # DDL文は自動コミットモードで実行する必要がある
+    # Azure SQL ではCREATE TABLEなどのDDLはトランザクション外で実行することが推奨される
+    connection.autocommit = True
 
     # カーソルを生成してSQLを実行できる状態にする
     cursor = connection.cursor()
 
-    # seatsテーブルが存在しない場合のみ作成する
-    # PostgreSQLではSERIALで自動採番の整数型主キーを定義する（SQLiteのAUTOINCREMENTに相当）
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS seats (
-            id          SERIAL PRIMARY KEY,
-            seat_number TEXT NOT NULL UNIQUE,
-            zone        TEXT,
-            is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-            description TEXT
+    try:
+        # seatsテーブルが存在しない場合のみ作成する
+        # Azure SQL(T-SQL)ではIF NOT EXISTS構文がないため
+        # INFORMATION_SCHEMA.TABLESを使ってテーブルの存在確認を行う
+        cursor.execute(
+            """
+            IF NOT EXISTS (
+                SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_NAME = 'seats'
+            )
+            BEGIN
+                CREATE TABLE seats (
+                    id          INT IDENTITY(1,1) PRIMARY KEY,
+                    seat_number NVARCHAR(100) NOT NULL UNIQUE,
+                    zone        NVARCHAR(100),
+                    is_active   BIT NOT NULL DEFAULT 1,
+                    description NVARCHAR(MAX)
+                )
+            END
+            """
+            # IDENTITY(1,1)  : 1から始まり1ずつ増加する自動採番（PostgreSQLのSERIALに相当）
+            # NVARCHAR       : Unicodeに対応した可変長文字列型（日本語対応）
+            # BIT            : 0/1の2値型（PostgreSQLのBOOLEAN、SQLiteのINTEGERに相当）
+            # NVARCHAR(MAX)  : 最大2GBまで格納できる大容量文字列型
         )
-        """
-        # PostgreSQLはネイティブでBOOLEAN型をサポートするため、SQLite版の INTEGER(0/1) は不要
-    )
 
-    # reservationsテーブルが存在しない場合のみ作成する
-    # PostgreSQLではTIMESTAMPWITH TIME ZONEで日時を直接扱える（SQLiteのTEXT保存と異なる）
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS reservations (
-            id         SERIAL PRIMARY KEY,
-            user_name  TEXT NOT NULL,
-            email      TEXT NOT NULL,
-            seat_id    INTEGER NOT NULL,
-            start_time TIMESTAMPTZ NOT NULL,
-            end_time   TIMESTAMPTZ NOT NULL,
-            status     TEXT NOT NULL,
-            FOREIGN KEY (seat_id) REFERENCES seats(id)
+        # reservationsテーブルが存在しない場合のみ作成する
+        cursor.execute(
+            """
+            IF NOT EXISTS (
+                SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_NAME = 'reservations'
+            )
+            BEGIN
+                CREATE TABLE reservations (
+                    id         INT IDENTITY(1,1) PRIMARY KEY,
+                    user_name  NVARCHAR(200) NOT NULL,
+                    email      NVARCHAR(254) NOT NULL,
+                    seat_id    INT NOT NULL,
+                    start_time DATETIME2 NOT NULL,
+                    end_time   DATETIME2 NOT NULL,
+                    status     NVARCHAR(50) NOT NULL,
+                    FOREIGN KEY (seat_id) REFERENCES seats(id)
+                )
+            END
+            """
+            # DATETIME2: T-SQLの高精度日時型（タイムゾーンなし、精度は最大100ナノ秒）
+            # タイムゾーン付きで保存する場合はDATETIMEOFFSETを使用する
+            # email用のNVARCHAR(254)はRFC 5321のメールアドレス最大長に準拠
         )
-        """
-        # TIMESTAMPTZはタイムゾーン情報付きのタイムスタンプ型
-        # これによりisoformat()文字列への変換が不要になる
-    )
-
-    # 実行したSQLをDBに確定させる
-    connection.commit()
-
-    # 初期化専用の接続を閉じる
-    connection.close()
+    except pyodbc.ProgrammingError as exc:
+        message = str(exc)
+        if "CREATE TABLE permission denied" in message or "permission denied in database" in message:
+            print(
+                "WARNING: Azure SQL user does not have CREATE TABLE permission. "
+                "Skipping schema initialization."
+            )
+        else:
+            raise
+    finally:
+        # DDL自動コミットモードのため明示的なcommitは不要だが、接続を閉じる
+        connection.close()
 
 
 # ---------------------------------------------------------------------------
@@ -228,15 +354,6 @@ def startup_event() -> None:
 # ユーティリティ関数
 # ---------------------------------------------------------------------------
 
-def map_row_to_dict(row: dict) -> dict:
-    """
-    psycopg2のRealDictRowを通常のdictに変換する関数。
-    Pydanticモデルへの渡し前に使用する。
-    """
-    # RealDictRowはdict互換だが、明示的にdictに変換して扱いやすくする
-    return dict(row)
-
-
 def assert_time_range(start_time: datetime, end_time: datetime) -> None:
     """
     終了時刻が開始時刻より後であることを検証する関数。
@@ -248,7 +365,7 @@ def assert_time_range(start_time: datetime, end_time: datetime) -> None:
 
 
 def is_overlapping(
-    conn: Psycopg2Connection,
+    conn: pyodbc.Connection,
     seat_id: int,
     start_time: datetime,
     end_time: datetime,
@@ -260,29 +377,31 @@ def is_overlapping(
     """
     # 重複判定SQL: 既存予約の終了が新規開始より前 OR 既存開始が新規終了より後 → 重複なし
     # それ以外は重複あり（NOT条件の否定）
+    # pyodbcのプレースホルダーは ? を使用する（psycopg2の%sと異なる）
     query = """
-        SELECT COUNT(1) AS count 
-        FROM reservations 
-        WHERE seat_id = %s 
-          AND NOT (end_time <= %s OR start_time >= %s)
+        SELECT COUNT(1) AS cnt
+        FROM reservations
+        WHERE seat_id = ?
+          AND NOT (end_time <= ? OR start_time >= ?)
     """
-    # SQLiteの?プレースホルダーと異なり、psycopg2では%sを使用する
+    # プレースホルダーに対応するパラメータリストを作成する
     params: list = [seat_id, start_time, end_time]
 
-    # 更新時など自分自身の予約を除外する場合はAND id != %sを追加
+    # 更新時など自分自身の予約を除外する場合はAND id != ?を追加する
     if exclude_id is not None:
-        query += " AND id != %s"
+        query += " AND id != ?"
         params.append(exclude_id)
 
-    # psycopg2ではカーソルを個別に生成してSQLを実行する
-    with conn.cursor() as cursor:
-        # SQLを実行する（paramsはタプルに変換して渡す）
-        cursor.execute(query, tuple(params))
-        # 結果を1行取得する
-        result = cursor.fetchone()
+    # カーソルを生成してSQLを実行する
+    cursor = conn.cursor()
+    cursor.execute(query, tuple(params))
 
-    # countが1以上であれば重複ありとしてTrueを返す
-    return result["count"] > 0
+    # 結果を1行取得する
+    row = cursor.fetchone()
+
+    # T-SQLではCOUNT結果のカラム名エイリアスがrow_to_dictなしでも
+    # インデックスでアクセス可能なため、ここではインデックス0で取得する
+    return row[0] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -294,25 +413,26 @@ def is_overlapping(
 def list_seats(
     # クエリパラメータ: ?active_only=true でアクティブな座席のみ取得
     active_only: bool = Query(False, description="Return only active seats"),
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 基本クエリ（全件取得）
     query = "SELECT * FROM seats"
 
     # active_onlyがTrueの場合はWHERE句を追加してフィルタリングする
     if active_only:
-        # PostgreSQLのBOOLEAN型はTRUE/FALSEで直接比較できる（SQLiteの1/0と異なる）
-        query += " WHERE is_active = TRUE"
+        # Azure SQL(T-SQL)のBIT型は1/0で比較する（PostgreSQLのTRUE/FALSEと異なる）
+        query += " WHERE is_active = 1"
 
     # カーソルを生成してSQLを実行する
-    with conn.cursor() as cursor:
-        cursor.execute(query)
-        # 全行を取得してリストにする
-        rows = cursor.fetchall()
+    cursor = conn.cursor()
+    cursor.execute(query)
 
-    # 各行をdictに変換してSeatReadモデルのリストとして返す
-    return [SeatRead(**map_row_to_dict(row)) for row in rows]
+    # 全行を取得してdictのリストに変換する
+    rows = cursor.fetchall()
+
+    # 各行をrow_to_dictでdict化してSeatReadモデルに変換し、リストとして返す
+    return [SeatRead(**row_to_dict(cursor, row)) for row in rows]
 
 
 # 新規座席を作成するPOSTエンドポイント（成功時201を返す）
@@ -320,36 +440,41 @@ def list_seats(
 def create_seat(
     # リクエストボディをSeatCreateモデルとして受け取る
     seat: SeatCreate,
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
-    # カーソルを生成してINSERT文を実行する
-    with conn.cursor() as cursor:
-        # RETURNING idでINSERTした行のIDを取得する（PostgreSQL固有の便利な構文）
-        # SQLiteではlastrowidを使う必要があったが、PostgreSQLではRETURNINGで直接取得できる
-        cursor.execute(
-            """
-            INSERT INTO seats (seat_number, zone, is_active, description)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id
-            """,
-            # PostgreSQLはBOOLEAN型をそのまま受け取れるためint変換不要
-            (seat.seat_number, seat.zone, seat.is_active, seat.description),
-        )
-        # INSERT直後のIDを取得する
-        seat_id = cursor.fetchone()["id"]
+    # カーソルを生成する
+    cursor = conn.cursor()
+
+    # INSERT文を実行する
+    # T-SQLではRETURNING構文が使えないため、SCOPE_IDENTITY()でINSERT後のIDを取得する
+    # SCOPE_IDENTITY()は現在のスコープで最後にINSERTされたIDENTITY値を返す
+    cursor.execute(
+        """
+        INSERT INTO seats (seat_number, zone, is_active, description)
+        VALUES (?, ?, ?, ?);
+        SELECT SCOPE_IDENTITY() AS id;
+        """,
+        # BIT型のis_activeはPythonのboolをintに変換して渡す（True→1, False→0）
+        (seat.seat_number, seat.zone, int(seat.is_active), seat.description),
+    )
+
+    # 複数のSQL文を実行した場合、nextset()で次の結果セットに移動する
+    # ここではSELECT SCOPE_IDENTITY()の結果セットに移動する
+    cursor.nextset()
+
+    # SCOPE_IDENTITY()の結果からINSERTしたIDを取得する
+    seat_id = int(cursor.fetchone()[0])
 
     # INSERTした結果をDBに確定させる
     conn.commit()
 
-    # 作成した座席を再取得してレスポンスとして返す
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT * FROM seats WHERE id = %s", (seat_id,))
-        # 作成した1行を取得する
-        row = cursor.fetchone()
+    # 作成した座席を再取得する
+    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
+    row = cursor.fetchone()
 
     # 取得した行をSeatReadモデルに変換して返す
-    return SeatRead(**map_row_to_dict(row))
+    return SeatRead(**row_to_dict(cursor, row))
 
 
 # 指定IDの座席を取得するGETエンドポイント
@@ -357,20 +482,20 @@ def create_seat(
 def get_seat(
     # パスパラメータとして座席IDを受け取る
     seat_id: int,
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 指定IDの座席を検索する
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT * FROM seats WHERE id = %s", (seat_id,))
-        row = cursor.fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
+    row = cursor.fetchone()
 
     # 座席が存在しない場合は404エラーを返す
     if row is None:
         raise HTTPException(status_code=404, detail="Seat not found")
 
     # 取得した行をSeatReadモデルに変換して返す
-    return SeatRead(**map_row_to_dict(row))
+    return SeatRead(**row_to_dict(cursor, row))
 
 
 # 指定IDの座席を更新するPUTエンドポイント
@@ -380,20 +505,20 @@ def update_seat(
     seat_id: int,
     # リクエストボディをSeatUpdateモデルとして受け取る
     payload: SeatUpdate,
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 更新対象の座席が存在するか確認する
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT * FROM seats WHERE id = %s", (seat_id,))
-        row = cursor.fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
+    row = cursor.fetchone()
 
     # 座席が存在しない場合は404エラーを返す
     if row is None:
         raise HTTPException(status_code=404, detail="Seat not found")
 
     # 現在のDB値をdictとして取得する
-    updated = map_row_to_dict(row)
+    updated = row_to_dict(cursor, row)
 
     # リクエストで指定されたフィールドのみを取得する（未指定フィールドは除外）
     update_data = payload.dict(exclude_unset=True)
@@ -402,36 +527,34 @@ def update_seat(
     updated.update(update_data)
 
     # 更新SQLを実行する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            """
-            UPDATE seats 
-            SET seat_number = %s, 
-                zone        = %s, 
-                is_active   = %s, 
-                description = %s 
-            WHERE id = %s
-            """,
-            # PostgreSQLはBOOLEAN型をそのまま受け取れるためint変換不要
-            (
-                updated["seat_number"],
-                updated["zone"],
-                updated["is_active"],
-                updated["description"],
-                seat_id,
-            ),
-        )
+    cursor.execute(
+        """
+        UPDATE seats 
+        SET seat_number = ?, 
+            zone        = ?, 
+            is_active   = ?, 
+            description = ? 
+        WHERE id = ?
+        """,
+        # BIT型のis_activeはintに変換して渡す（True→1, False→0）
+        (
+            updated["seat_number"],
+            updated["zone"],
+            int(updated["is_active"]),
+            updated["description"],
+            seat_id,
+        ),
+    )
 
     # 更新内容をDBに確定させる
     conn.commit()
 
     # 更新後の座席データを再取得する
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT * FROM seats WHERE id = %s", (seat_id,))
-        row = cursor.fetchone()
+    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
+    row = cursor.fetchone()
 
     # 取得した行をSeatReadモデルに変換して返す
-    return SeatRead(**map_row_to_dict(row))
+    return SeatRead(**row_to_dict(cursor, row))
 
 
 # 指定IDの座席を削除するDELETEエンドポイント（成功時204を返す）
@@ -439,29 +562,28 @@ def update_seat(
 def delete_seat(
     # パスパラメータとして座席IDを受け取る
     seat_id: int,
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 削除対象の座席が存在するか確認する
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT * FROM seats WHERE id = %s", (seat_id,))
-        # 座席が存在しない場合は404エラーを返す
-        if cursor.fetchone() is None:
-            raise HTTPException(status_code=404, detail="Seat not found")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
+
+    # 座席が存在しない場合は404エラーを返す
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Seat not found")
 
     # その座席に紐づく予約が存在するか確認する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT COUNT(1) AS count FROM reservations WHERE seat_id = %s",
-            (seat_id,),
-        )
-        # 予約が1件以上存在する場合は削除を拒否して400エラーを返す（データ整合性の保護）
-        if cursor.fetchone()["count"] > 0:
-            raise HTTPException(status_code=400, detail="Seat has existing reservations")
+    cursor.execute(
+        "SELECT COUNT(1) AS cnt FROM reservations WHERE seat_id = ?",
+        (seat_id,),
+    )
+    # 予約が1件以上存在する場合は削除を拒否して400エラーを返す（データ整合性の保護）
+    if cursor.fetchone()[0] > 0:
+        raise HTTPException(status_code=400, detail="Seat has existing reservations")
 
     # 座席を削除する
-    with conn.cursor() as cursor:
-        cursor.execute("DELETE FROM seats WHERE id = %s", (seat_id,))
+    cursor.execute("DELETE FROM seats WHERE id = ?", (seat_id,))
 
     # 削除をDBに確定させる
     conn.commit()
@@ -481,33 +603,34 @@ def available_seats(
     start_time: datetime = Query(...),
     # 検索終了時刻: 必須クエリパラメータ
     end_time: datetime = Query(...),
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 終了時刻が開始時刻より後であることを検証する
     assert_time_range(start_time, end_time)
 
     # アクティブかつ指定時間帯に重複する予約のない座席を取得する
     # サブクエリで重複する予約のseat_idを取得し、NOT INで除外する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT * FROM seats 
-            WHERE is_active = TRUE 
-              AND id NOT IN (
-                  SELECT seat_id 
-                  FROM reservations 
-                  WHERE NOT (end_time <= %s OR start_time >= %s)
-              )
-            """,
-            # PostgreSQLはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
-            (start_time, end_time),
-        )
-        # 条件に合う全座席を取得する
-        rows = cursor.fetchall()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT * FROM seats
+        WHERE is_active = 1
+          AND id NOT IN (
+              SELECT seat_id
+              FROM reservations
+              WHERE NOT (end_time <= ? OR start_time >= ?)
+          )
+        """,
+        # pyodbcはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
+        (start_time, end_time),
+    )
+
+    # 条件に合う全座席を取得する
+    rows = cursor.fetchall()
 
     # 各行をSeatReadモデルに変換してリストとして返す
-    return [SeatRead(**map_row_to_dict(row)) for row in rows]
+    return [SeatRead(**row_to_dict(cursor, row)) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -517,16 +640,16 @@ def available_seats(
 # 予約一覧を取得するGETエンドポイント
 @app.get("/api/reservations", response_model=List[ReservationRead])
 def list_reservations(
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 全予約を開始時刻の昇順で取得する
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT * FROM reservations ORDER BY start_time")
-        rows = cursor.fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM reservations ORDER BY start_time")
+    rows = cursor.fetchall()
 
     # 各行をReservationReadモデルに変換してリストとして返す
-    return [ReservationRead(**map_row_to_dict(row)) for row in rows]
+    return [ReservationRead(**row_to_dict(cursor, row)) for row in rows]
 
 
 # 新規予約を作成するPOSTエンドポイント（成功時201を返す）
@@ -534,19 +657,19 @@ def list_reservations(
 def create_reservation(
     # リクエストボディをReservationCreateモデルとして受け取る
     payload: ReservationCreate,
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 終了時刻が開始時刻より後であることを検証する
     assert_time_range(payload.start_time, payload.end_time)
 
     # 指定された座席が存在し、かつアクティブ（予約受付中）であるか確認する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT * FROM seats WHERE id = %s AND is_active = TRUE",
-            (payload.seat_id,),
-        )
-        seat = cursor.fetchone()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM seats WHERE id = ? AND is_active = 1",
+        (payload.seat_id,),
+    )
+    seat = cursor.fetchone()
 
     # 座席が存在しない、またはアクティブでない場合は404エラーを返す
     if seat is None:
@@ -561,40 +684,42 @@ def create_reservation(
         )
 
     # 予約をDBに登録する
-    with conn.cursor() as cursor:
-        # RETURNING idでINSERTした行のIDを取得する（PostgreSQL固有の構文）
-        cursor.execute(
-            """
-            INSERT INTO reservations 
-                (user_name, email, seat_id, start_time, end_time, status)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            # PostgreSQLはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
-            (
-                payload.user_name,
-                payload.email,
-                payload.seat_id,
-                payload.start_time,
-                payload.end_time,
-                payload.status,
-            ),
-        )
-        # INSERT直後のIDを取得する
-        reservation_id = cursor.fetchone()["id"]
+    # T-SQLではRETURNING構文が使えないためSCOPE_IDENTITY()でIDを取得する
+    cursor.execute(
+        """
+        INSERT INTO reservations 
+            (user_name, email, seat_id, start_time, end_time, status)
+        VALUES (?, ?, ?, ?, ?, ?);
+        SELECT SCOPE_IDENTITY() AS id;
+        """,
+        # pyodbcはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
+        (
+            payload.user_name,
+            payload.email,
+            payload.seat_id,
+            payload.start_time,
+            payload.end_time,
+            payload.status,
+        ),
+    )
+
+    # 次の結果セット（SCOPE_IDENTITY()の結果）に移動する
+    cursor.nextset()
+
+    # SCOPE_IDENTITY()の結果からINSERTしたIDを取得する
+    reservation_id = int(cursor.fetchone()[0])
 
     # 予約をDBに確定させる
     conn.commit()
 
     # 作成した予約を再取得してレスポンスとして返す
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT * FROM reservations WHERE id = %s", (reservation_id,)
-        )
-        row = cursor.fetchone()
+    cursor.execute(
+        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+    )
+    row = cursor.fetchone()
 
     # 取得した行をReservationReadモデルに変換して返す
-    return ReservationRead(**map_row_to_dict(row))
+    return ReservationRead(**row_to_dict(cursor, row))
 
 
 # 指定IDの予約を取得するGETエンドポイント
@@ -602,22 +727,22 @@ def create_reservation(
 def get_reservation(
     # パスパラメータとして予約IDを受け取る
     reservation_id: int,
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 指定IDの予約を検索する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT * FROM reservations WHERE id = %s", (reservation_id,)
-        )
-        row = cursor.fetchone()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+    )
+    row = cursor.fetchone()
 
     # 予約が存在しない場合は404エラーを返す
     if row is None:
         raise HTTPException(status_code=404, detail="Reservation not found")
 
     # 取得した行をReservationReadモデルに変換して返す
-    return ReservationRead(**map_row_to_dict(row))
+    return ReservationRead(**row_to_dict(cursor, row))
 
 
 # 指定IDの予約を更新するPUTエンドポイント
@@ -627,22 +752,22 @@ def update_reservation(
     reservation_id: int,
     # リクエストボディをReservationUpdateモデルとして受け取る
     payload: ReservationUpdate,
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 更新対象の予約が存在するか確認する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT * FROM reservations WHERE id = %s", (reservation_id,)
-        )
-        row = cursor.fetchone()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+    )
+    row = cursor.fetchone()
 
     # 予約が存在しない場合は404エラーを返す
     if row is None:
         raise HTTPException(status_code=404, detail="Reservation not found")
 
     # 現在のDB値をdictとして取得する
-    reservation = map_row_to_dict(row)
+    reservation = row_to_dict(cursor, row)
 
     # リクエストで指定されたフィールドのみを取得する（未指定フィールドは除外）
     update_data = payload.dict(exclude_unset=True)
@@ -650,23 +775,29 @@ def update_reservation(
     # 現在のDB値に更新データを上書きする（部分更新）
     reservation.update(update_data)
 
-    # PostgreSQLのTIMESTAMPTZ型はdatetimeオブジェクトとして返るため
-    # SQLite版のようなisoformat()からの変換処理は不要
-    # start_time / end_timeが確実にdatetimeオブジェクトであることを確認する
-    start_time: datetime = reservation["start_time"]
-    end_time: datetime = reservation["end_time"]
+    # DATETIME2型はdatetimeオブジェクトとして返るが、
+    # 文字列として返る場合に備えてdatetimeへの変換を行う
+    start_time: datetime = (
+        datetime.fromisoformat(str(reservation["start_time"]))
+        if not isinstance(reservation["start_time"], datetime)
+        else reservation["start_time"]
+    )
+    end_time: datetime = (
+        datetime.fromisoformat(str(reservation["end_time"]))
+        if not isinstance(reservation["end_time"], datetime)
+        else reservation["end_time"]
+    )
 
     # 終了時刻が開始時刻より後であることを検証する
     assert_time_range(start_time, end_time)
 
     # 更新後の座席が存在しアクティブであるか確認する
     if reservation.get("seat_id") is not None:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT * FROM seats WHERE id = %s AND is_active = TRUE",
-                (reservation["seat_id"],),
-            )
-            seat = cursor.fetchone()
+        cursor.execute(
+            "SELECT * FROM seats WHERE id = ? AND is_active = 1",
+            (reservation["seat_id"],),
+        )
+        seat = cursor.fetchone()
         # 座席が存在しない、またはアクティブでない場合は404エラーを返す
         if seat is None:
             raise HTTPException(status_code=404, detail="Seat not found or inactive")
@@ -686,42 +817,40 @@ def update_reservation(
         )
 
     # 更新SQLを実行する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            """
-            UPDATE reservations 
-            SET user_name  = %s, 
-                email      = %s, 
-                seat_id    = %s, 
-                start_time = %s, 
-                end_time   = %s, 
-                status     = %s 
-            WHERE id = %s
-            """,
-            # PostgreSQLはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
-            (
-                reservation["user_name"],
-                reservation["email"],
-                reservation["seat_id"],
-                start_time,
-                end_time,
-                reservation["status"],
-                reservation_id,
-            ),
-        )
+    cursor.execute(
+        """
+        UPDATE reservations
+        SET user_name  = ?,
+            email      = ?,
+            seat_id    = ?,
+            start_time = ?,
+            end_time   = ?,
+            status     = ?
+        WHERE id = ?
+        """,
+        # pyodbcはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
+        (
+            reservation["user_name"],
+            reservation["email"],
+            reservation["seat_id"],
+            start_time,
+            end_time,
+            reservation["status"],
+            reservation_id,
+        ),
+    )
 
     # 更新内容をDBに確定させる
     conn.commit()
 
     # 更新後の予約データを再取得する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT * FROM reservations WHERE id = %s", (reservation_id,)
-        )
-        row = cursor.fetchone()
+    cursor.execute(
+        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+    )
+    row = cursor.fetchone()
 
     # 取得した行をReservationReadモデルに変換して返す
-    return ReservationRead(**map_row_to_dict(row))
+    return ReservationRead(**row_to_dict(cursor, row))
 
 
 # 指定IDの予約を削除するDELETEエンドポイント（成功時204を返す）
@@ -729,23 +858,22 @@ def update_reservation(
 def delete_reservation(
     # パスパラメータとして予約IDを受け取る
     reservation_id: int,
-    # 依存性注入でPostgreSQL接続を受け取る
-    conn: Psycopg2Connection = Depends(get_connection),
+    # 依存性注入でAzure SQL接続を受け取る
+    conn: pyodbc.Connection = Depends(get_connection),
 ):
     # 削除対象の予約が存在するか確認する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT * FROM reservations WHERE id = %s", (reservation_id,)
-        )
-        # 予約が存在しない場合は404エラーを返す
-        if cursor.fetchone() is None:
-            raise HTTPException(status_code=404, detail="Reservation not found")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+    )
+    # 予約が存在しない場合は404エラーを返す
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Reservation not found")
 
     # 予約を削除する
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "DELETE FROM reservations WHERE id = %s", (reservation_id,)
-        )
+    cursor.execute(
+        "DELETE FROM reservations WHERE id = ?", (reservation_id,)
+    )
 
     # 削除をDBに確定させる
     conn.commit()
