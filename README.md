@@ -1,6 +1,6 @@
 #serverの起動方法
 
-①AzureportalからakichanceVMを選択し、右上タブにある開始ボタンが押されていることを確認
+①AzureportalからakichanceVMを選択し、タブにある開始ボタンが押されていることを確認
 
 ②powershellを起動
 
