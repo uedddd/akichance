@@ -880,3 +880,171 @@ def delete_reservation(
 
     # 204 No Contentのレスポンスを返す（ボディなし）
     return None
+
+# ---------------------------------------------------------------------------
+# Power Automate 連携設定
+# ---------------------------------------------------------------------------
+import requests as http_requests
+
+# Power AutomateのHTTP URLを環境変数から取得
+POWER_AUTOMATE_CANCEL_URL: str = os.getenv("POWER_AUTOMATE_CANCEL_URL", "")
+POWER_AUTOMATE_SYNC_URL: str = os.getenv("POWER_AUTOMATE_SYNC_URL", "")
+
+
+# ---------------------------------------------------------------------------
+# Pydanticモデル定義（Power Automate連携）
+# ---------------------------------------------------------------------------
+
+class OutlookReservationSync(BaseModel):
+    """Power AutomateからOutlook予約データを受信するモデル"""
+    # OutlookイベントID
+    outlook_event_id: str = Field(..., description="Outlook event ID")
+    # 予約者名
+    user_name: str = Field(..., description="Name of the organizer")
+    # メールアドレス
+    email: EmailStr = Field(..., description="Organizer email")
+    # 座席ID
+    seat_id: int = Field(..., description="Reserved seat ID")
+    # 開始時刻
+    start_time: datetime = Field(..., description="Reservation start time")
+    # 終了時刻
+    end_time: datetime = Field(..., description="Reservation end time")
+
+
+class CancelResponse(BaseModel):
+    """キャンセル処理のレスポンスモデル"""
+    status: str
+    reservation_id: int
+    message: str
+
+
+# ---------------------------------------------------------------------------
+# Power Automate 連携エンドポイント
+# ---------------------------------------------------------------------------
+
+@app.post("/api/reservations/sync", response_model=ReservationRead, status_code=201)
+def sync_outlook_reservation(
+    payload: OutlookReservationSync,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    """
+    Power AutomateからOutlook予約データを受信してSQLに保存するエンドポイント。
+    Power Automateのトリガー：「予定表のイベントが追加されたとき」
+    """
+    # 時間範囲の検証
+    assert_time_range(payload.start_time, payload.end_time)
+
+    # 座席の存在確認
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM seats WHERE id = ? AND is_active = 1",
+        (payload.seat_id,),
+    )
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Seat not found or inactive")
+
+    # 重複チェック
+    if is_overlapping(conn, payload.seat_id, payload.start_time, payload.end_time):
+        raise HTTPException(
+            status_code=409,
+            detail="Seat is already reserved for the selected time range",
+        )
+
+    # outlook_event_idカラムがない場合は追加が必要
+    # reservationsテーブルにoutlook_event_idカラムを追加
+    cursor.execute(
+        """
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = 'reservations' 
+            AND COLUMN_NAME = 'outlook_event_id'
+        )
+        BEGIN
+            ALTER TABLE reservations 
+            ADD outlook_event_id NVARCHAR(500)
+        END
+        """
+    )
+    conn.commit()
+
+    # SQLへ保存
+    cursor.execute(
+        """
+        INSERT INTO reservations
+            (user_name, email, seat_id, start_time, end_time, status, outlook_event_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+        SELECT SCOPE_IDENTITY() AS id;
+        """,
+        (
+            payload.user_name,
+            payload.email,
+            payload.seat_id,
+            payload.start_time,
+            payload.end_time,
+            "confirmed",
+            payload.outlook_event_id,
+        ),
+    )
+
+    cursor.nextset()
+    reservation_id = int(cursor.fetchone()[0])
+    conn.commit()
+
+    # 作成した予約を返す
+    cursor.execute(
+        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+    )
+    row = cursor.fetchone()
+    return ReservationRead(**row_to_dict(cursor, row))
+
+
+@app.post("/api/reservations/cancel/{reservation_id}", response_model=CancelResponse)
+def cancel_reservation(
+    reservation_id: int,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    """
+    予約をキャンセルするエンドポイント。
+    ① SQLのステータスを「cancelled」に更新
+    ② Power AutomateへHTTPリクエストを送信してOutlook予約を削除
+    """
+    # 予約の存在確認
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+
+    reservation = row_to_dict(cursor, row)
+
+    # SQLのステータスを「cancelled」に更新
+    cursor.execute(
+        "UPDATE reservations SET status = ? WHERE id = ?",
+        ("cancelled", reservation_id),
+    )
+    conn.commit()
+
+    # Power AutomateへHTTPリクエストを送信（Outlook予約削除）
+    if POWER_AUTOMATE_CANCEL_URL:
+        try:
+            response = http_requests.post(
+                POWER_AUTOMATE_CANCEL_URL,
+                json={
+                    "reservation_id": reservation_id,
+                    "outlook_event_id": reservation.get("outlook_event_id", ""),
+                    "email": reservation["email"],
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+        except Exception as e:
+            # Power Automate側のエラーはログに記録するが処理は続行
+            print(f"Power Automate通知エラー: {e}")
+
+    return CancelResponse(
+        status="cancelled",
+        reservation_id=reservation_id,
+        message="予約をキャンセルしました",
+    )
