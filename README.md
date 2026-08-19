@@ -10,8 +10,10 @@
 
 #. mainブランチの場合
 
+1. 仮想環境を有効化
 　source ~/fastapi-app/venv/bin/activate
 
+2. サーバー起動
   uvicorn app:app --host 0.0.0.0 --port 8000 --reload --app-dir ~/fastapi-app/app
 
 #. devlopブランチの場合
