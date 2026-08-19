@@ -294,7 +294,7 @@ import hmac
 import hashlib
 import base64
 from urllib.parse import quote
-@app.post("/api/negotiate")
+@app.post("/api/negotiate/negotiate")
 async def negotiate():
     """
     フロントが SignalR に接続するための
