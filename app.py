@@ -157,7 +157,16 @@ class SeatCreate(SeatBase):
 # 座席読み取り時に使用するモデル（DBのidフィールドを追加）
 class SeatRead(SeatBase):
     # DBが自動採番するID
-    id: int
+    seat_id: int
+    floor_id: int
+    seat_name: str
+    status: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    seat_type: str
+    capacity: Optional[int] = None
+    has_monitor: bool
 
     # Pydanticの設定クラス
     class Config:
@@ -202,7 +211,16 @@ class ReservationCreate(ReservationBase):
 # 予約読み取り時に使用するモデル（DBのidフィールドを追加）
 class ReservationRead(ReservationBase):
     # DBが自動採番するID
-    id: int
+    reservation_id: int
+    seat_id: int
+    user_id: int
+    outlook_event_id: Optional[str] = None
+    start_datetime: datetime   # ← start_time → start_datetime
+    end_datetime: datetime     # ← end_time → end_datetime
+    status: str
+    notified_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
 
     # Pydanticの設定クラス
     class Config:
@@ -665,7 +683,7 @@ def list_reservations(
 ):
     # 全予約を開始時刻の昇順で取得する
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM reservations ORDER BY start_time")
+    cursor.execute("SELECT * FROM reservations ORDER BY start_datetime")
     rows = cursor.fetchall()
 
     # 各行をReservationReadモデルに変換してリストとして返す
