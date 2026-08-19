@@ -8,6 +8,6 @@
 #define DEVICE_ID         "m5go-button-01"
 #define SHARED_ACCESS_KEY "xOeZefFPb2idFmVnzj3UXJAa1VDCPwqwJs+f0XYTnMQ="
 
-#define SEAT_ID "SEAT-01"
+#define SEAT_ID 2
 
 #endif
