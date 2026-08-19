@@ -8,19 +8,19 @@
 
 　ssh -i C:\Users\26h1_p53\ueda\ssh\akichance-key.pem azureuser@20.243.122.235
 
-〇mainブランチの場合
+#. mainブランチの場合
 　source ~/fastapi-app/venv/bin/activate
 
   uvicorn app:app --host 0.0.0.0 --port 8000 --reload --app-dir ~/fastapi-app/app
 
-〇devlopブランチの場合
-# 1. ディレクトリに移動
+#. devlopブランチの場合
+1. ディレクトリに移動
 cd ~/akichance_test
 
-# 2. 仮想環境を有効化
+2. 仮想環境を有効化
 source venv/bin/activate
 
-# 3. サーバー起動
+3. サーバー起動
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 
