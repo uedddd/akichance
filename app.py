@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 # OSの環境変数を取得するための標準ライブラリ
+import json
 import os
 from pathlib import Path
 
@@ -45,6 +46,7 @@ import pyodbc
 
 # Azure Entra ID 認証（サービスプリンシパル）
 from azure.identity import ClientSecretCredential
+
 
 # .env ファイルを読み込む
 env_file = Path(__file__).parent / ".env"
@@ -296,12 +298,8 @@ import base64
 from urllib.parse import quote
 @app.post("/api/negotiate/negotiate")
 async def negotiate():
-    """
-    フロントが SignalR に接続するための
-    URL とトークンを返すエンドポイント
-    """
-    conn_str  = os.getenv("SIGNALR_CONNECTION_STRING", "")
-    hub_name  = os.getenv("SIGNALR_HUB_NAME", "seatHub")
+    conn_str = os.getenv("SIGNALR_CONNECTION_STRING", "")
+    hub_name = os.getenv("SIGNALR_HUB_NAME", "seatHub")
 
     if not conn_str:
         raise HTTPException(
@@ -319,27 +317,37 @@ async def negotiate():
     endpoint   = parts.get("Endpoint", "").rstrip("/")
     access_key = parts.get("AccessKey", "")
 
-    # クライアント用トークンを生成
-    audience         = f"{endpoint}/client/?hub={hub_name}"
-    expiry           = int(time.time()) + 3600
-    encoded_audience = quote(audience, safe="")
-    string_to_sign   = f"{encoded_audience}\n{expiry}"
+    # JWT形式のトークンを生成
+    audience = f"{endpoint}/client/?hub={hub_name}"
+    expiry   = int(time.time()) + 3600
 
-    raw_sig   = hmac.new(
+    # JWTヘッダー
+    header = base64.urlsafe_b64encode(
+        json.dumps({"alg": "HS256", "typ": "JWT"}).encode()
+    ).rstrip(b"=").decode()
+
+    # JWTペイロード
+    payload = base64.urlsafe_b64encode(
+        json.dumps({
+            "aud": audience,
+            "exp": expiry,
+            "iat": int(time.time()),
+        }).encode()
+    ).rstrip(b"=").decode()
+
+    # 署名
+    signing_input = f"{header}.{payload}"
+    raw_sig = hmac.new(
         access_key.encode("utf-8"),
-        string_to_sign.encode("utf-8"),
+        signing_input.encode("utf-8"),
         hashlib.sha256
     ).digest()
-    signature = base64.b64encode(raw_sig).decode("utf-8")
+    signature = base64.urlsafe_b64encode(raw_sig).rstrip(b"=").decode()
 
-    token = (
-        f"Audience={encoded_audience}"
-        f"&Expires={expiry}"
-        f"&Signature={quote(signature, safe='')}"
-    )
+    token = f"{header}.{payload}.{signature}"
 
     return {
-        "url":         f"{endpoint}/client/?hub={hub_name}",
+        "url":         audience,
         "accessToken": token
     }
 
