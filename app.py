@@ -53,6 +53,7 @@ if env_file.exists() and load_dotenv is not None:
 
 # FastAPI本体・依存性注入・HTTPエラー・クエリパラメータ
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 
 # Pydanticのベースモデル・メール検証・フィールド定義
 from pydantic import BaseModel, EmailStr, Field
@@ -348,6 +349,15 @@ def init_db() -> None:
 def startup_event() -> None:
     # DBテーブルの初期化処理を呼び出す
     init_db()
+
+
+@app.get("/", include_in_schema=False)
+def serve_index() -> FileResponse:
+    """
+    ルートURLにアクセスした場合、予約画面のHTMLを返す。
+    Swagger UIは /docs で引き続き利用可能。
+    """
+    return FileResponse(Path(__file__).parent / "index.html")
 
 
 # ---------------------------------------------------------------------------
