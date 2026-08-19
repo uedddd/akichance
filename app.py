@@ -294,8 +294,8 @@ import hmac
 import hashlib
 import base64
 from urllib.parse import quote
-@app.get("/api/negotiate")
-def negotiate():
+@app.post("/api/negotiate")
+async def negotiate():
     """
     フロントが SignalR に接続するための
     URL とトークンを返すエンドポイント
@@ -342,14 +342,6 @@ def negotiate():
         "url":         f"{endpoint}/client/?hub={hub_name}",
         "accessToken": token
     }
-
-@app.get("/", include_in_schema=False)
-def serve_index() -> FileResponse:
-    """
-    ルートURLにアクセスした場合、予約画面のHTMLを返す。
-    Swagger UIは /docs で引き続き利用可能。
-    """
-    return FileResponse(Path(__file__).parent / "index.html")
 
 @app.get("/", include_in_schema=False)
 def serve_index() -> FileResponse:
