@@ -9,11 +9,13 @@
 　ssh -i C:\Users\26h1_p53\ueda\ssh\akichance-key.pem azureuser@20.243.122.235
 
 #. mainブランチの場合
+
 　source ~/fastapi-app/venv/bin/activate
 
   uvicorn app:app --host 0.0.0.0 --port 8000 --reload --app-dir ~/fastapi-app/app
 
 #. devlopブランチの場合
+
 1. ディレクトリに移動
 cd ~/akichance_test
 
