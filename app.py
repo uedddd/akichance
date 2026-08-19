@@ -51,8 +51,12 @@ env_file = Path(__file__).parent / ".env"
 if env_file.exists() and load_dotenv is not None:
     load_dotenv(env_file)
 
+# SignalR 通知モジュール
+from signalr_service import send_message
+
 # FastAPI本体・依存性注入・HTTPエラー・クエリパラメータ
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 
 # Pydanticのベースモデル・メール検証・フィールド定義
 from pydantic import BaseModel, EmailStr, Field
@@ -292,6 +296,11 @@ def init_db() -> None:
                     zone        NVARCHAR(100),
                     is_active   BIT NOT NULL DEFAULT 1,
                     description NVARCHAR(MAX)
+                    status      NVARCHAR(50) NOT NULL DEFAULT 'available'
+                    -- ★ status カラムを追加
+                    -- available : 空き
+                    -- in_use    : 使用中
+                    -- reserved  : 予約済み
                 )
             END
             """
@@ -349,6 +358,67 @@ def startup_event() -> None:
     # DBテーブルの初期化処理を呼び出す
     init_db()
 
+import time
+import hmac
+import hashlib
+import base64
+from urllib.parse import quote
+@app.get("/api/negotiate")
+def negotiate():
+    """
+    フロントが SignalR に接続するための
+    URL とトークンを返すエンドポイント
+    """
+    conn_str  = os.getenv("SIGNALR_CONNECTION_STRING", "")
+    hub_name  = os.getenv("SIGNALR_HUB_NAME", "seatHub")
+
+    if not conn_str:
+        raise HTTPException(
+            status_code=500,
+            detail="SIGNALR_CONNECTION_STRING が設定されていません"
+        )
+
+    # 接続文字列をパース
+    parts = {}
+    for part in conn_str.strip().split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            parts[k.strip()] = v.strip()
+
+    endpoint   = parts.get("Endpoint", "").rstrip("/")
+    access_key = parts.get("AccessKey", "")
+
+    # クライアント用トークンを生成
+    audience         = f"{endpoint}/client/?hub={hub_name}"
+    expiry           = int(time.time()) + 3600
+    encoded_audience = quote(audience, safe="")
+    string_to_sign   = f"{encoded_audience}\n{expiry}"
+
+    raw_sig   = hmac.new(
+        access_key.encode("utf-8"),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256
+    ).digest()
+    signature = base64.b64encode(raw_sig).decode("utf-8")
+
+    token = (
+        f"Audience={encoded_audience}"
+        f"&Expires={expiry}"
+        f"&Signature={quote(signature, safe='')}"
+    )
+
+    return {
+        "url":         f"{endpoint}/client/?hub={hub_name}",
+        "accessToken": token
+    }
+
+@app.get("/", include_in_schema=False)
+def serve_index() -> FileResponse:
+    """
+    ルートURLにアクセスした場合、予約画面のHTMLを返す。
+    Swagger UIは /docs で引き続き利用可能。
+    """
+    return FileResponse(Path(__file__).parent / "index.html")
 
 # ---------------------------------------------------------------------------
 # ユーティリティ関数
@@ -548,6 +618,16 @@ def update_seat(
 
     # 更新内容をDBに確定させる
     conn.commit()
+
+    # SignalR に通知を送信する
+    send_message(
+        hub="seatHub",
+        target="seatStatusUpdated",
+        arguments=[{
+            "seatId": seat_id,
+            "status": updated.get("description", "更新"),
+        }],
+    )
 
     # 更新後の座席データを再取得する
     cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
