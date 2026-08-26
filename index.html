@@ -237,8 +237,96 @@
         ======================================== */
         .seats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 16px;
+            grid-template-columns: 100px repeat(10, minmax(56px, 1fr)) 100px;
+            grid-template-rows: repeat(7, minmax(70px, auto));
+            gap: 10px;
+            min-height: 600px;
+            padding: 20px;
+            background: #f4f7fb;
+            border: 2px solid #c8d9ea;
+            border-radius: 12px;
+        }
+
+        .seat-card[data-layout] {
+            min-width: 0;
+            padding: 10px;
+            border: 2px solid #b8cde1;
+            border-left: 5px solid #ccc;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .seat-card[data-layout="meeting-left-1"] { grid-column: 1; grid-row: 1; }
+        .seat-card[data-layout="meeting-left-2"] { grid-column: 1; grid-row: 2; }
+        .seat-card[data-layout="meeting-left-3"] { grid-column: 1; grid-row: 3; }
+        .seat-card[data-layout="meeting-right-4"] { grid-column: 12; grid-row: 1; }
+        .seat-card[data-layout="meeting-right-5"] { grid-column: 12; grid-row: 2; }
+        .seat-card[data-layout="meeting-right-6"] { grid-column: 12; grid-row: 3; }
+
+        .seat-card[data-layout="meeting-top-1"] { grid-column: 3; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-2"] { grid-column: 4 / span 2; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-3"] { grid-column: 6; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-4"] { grid-column: 8; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-5"] { grid-column: 9; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-6"] { grid-column: 10; grid-row: 1; }
+        .seat-card[data-layout="meeting-bottom-7"] { grid-column: 3; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-8"] { grid-column: 4 / span 2; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-9"] { grid-column: 6; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-10"] { grid-column: 7 / span 2; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-11"] { grid-column: 9; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-12"] { grid-column: 10; grid-row: 5; }
+
+        .seat-card[data-layout="free-1"] { grid-column: 2; grid-row: 7; }
+        .seat-card[data-layout="free-2"] { grid-column: 3; grid-row: 7; }
+        .seat-card[data-layout="free-3"] { grid-column: 9; grid-row: 7; }
+        .seat-card[data-layout="free-4"] { grid-column: 10; grid-row: 7; }
+        .seat-card[data-layout="free-5"] { grid-column: 11; grid-row: 7; }
+
+        .seat-card[data-layout^="meeting-"] {
+            min-width: 0;
+            padding: 10px;
+            border: 2px solid #b8cde1;
+            border-left-width: 5px;
+        }
+
+        .seat-card[data-layout^="meeting-"] .seat-name,
+        .seat-card[data-layout^="meeting-"] .seat-detail,
+        .seat-card[data-layout^="meeting-"] .seat-monitor {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .seat-card[data-layout^="meeting-"] .reserve-btn,
+        .seat-card[data-layout^="meeting-"] .status-badge {
+            font-size: 11px;
+        }
+
+        .seat-card[data-layout^="meeting-"] .reserve-btn {
+            padding: 6px 4px;
+        }
+
+        .seat-card[data-layout^="free-"] {
+            min-width: 0;
+            padding: 10px;
+        }
+
+        .seat-card[data-layout^="free-"] .seat-name {
+            font-size: 12px;
+        }
+
+        .seat-card[data-layout^="free-"] .reserve-btn {
+            font-size: 10px;
+            padding: 5px 3px;
+        }
+
+        @media (max-width: 900px) {
+            .seats-grid {
+                overflow-x: auto;
+                min-width: 820px;
+            }
         }
 
         /* ========================================
@@ -283,7 +371,7 @@
             border-radius: 10px;
         }
 
-        .seat-zone {
+        .seat-id {
             font-size: 12px;
             color: #888;
             margin-bottom: 10px;
@@ -910,13 +998,14 @@ function updateSummary() {
  * 席カード1枚のHTMLを生成する
  */
 function createSeatCardHTML(seat) {
+    const seatId       = seat.seat_id ?? seat.id;
     const status      = seat.status || 'available';
     const statusLabel = STATUS_LABEL[status] || status;
     const statusClass = STATUS_CLASS[status] || 'available';
 
     // 予約情報を取得（その席の直近の予約）
     const reservation = reservationsData.find(r =>
-        r.seat_id === seat.id &&
+        r.seat_id === seatId &&
         (r.status === 'confirmed' || r.status === 'reserved')
     );
 
@@ -924,31 +1013,83 @@ function createSeatCardHTML(seat) {
         ? `${reservation.user_name} | ${formatTime(reservation.start_time)}〜${formatTime(reservation.end_time)}`
         : (status === 'available' ? '本日空き' : '');
 
-    const zoneHtml = seat.zone
-        ? `<div class="seat-zone">${seat.zone}</div>`
-        : '';
+    const seatIdHtml = `<div class="seat-id">ID: ${seatId}</div>`;
 
-    const monitorHtml = seat.description && seat.description.includes('モニター')
+    const monitorHtml = seat.has_monitor || (seat.description && seat.description.includes('モニター'))
         ? `<div class="seat-monitor">🖥️ モニター有</div>`
         : '';
 
+    const layoutClass = getSeatLayout(seat.seat_number);
+    const seatName = seat.seat_name || seat.seat_number;
+    const capacityHtml = seat.capacity ? `<div class="seat-capacity">${seat.capacity}名</div>` : '';
+
     return `
         <div class="seat-card ${statusClass}"
-             id="seat-card-${seat.id}"
-             data-seat-id="${seat.id}">
+             data-layout="${layoutClass}"
+             id="seat-card-${seatId}"
+             data-seat-id="${seatId}">
             <div class="seat-card-header">
-                <div class="seat-name">${seat.seat_number}</div>
+                <div class="seat-name">${seatName}</div>
+                ${capacityHtml}
             </div>
-            ${zoneHtml}
+            ${seatIdHtml}
             <span class="status-badge badge-${statusClass}">${statusLabel}</span>
             <div class="seat-detail">${detailText}</div>
             ${monitorHtml}
             <button class="reserve-btn"
-                    onclick="openModal(${seat.id}, '${seat.seat_number}')">
+                    onclick="openModal(${seatId}, '${seatName}')">
                 予約する
             </button>
         </div>
     `;
+}
+
+/**
+ * フロアマップの位置はこの HTML 内の設定で管理する。
+ * DB の席名は表示用に使い、位置判定には使わない。
+ */
+const FLOOR_LAYOUTS = {
+    4: {
+        meeting: ['meeting-top-1', 'meeting-top-2', 'meeting-top-3', 'meeting-top-4', 'meeting-top-5', 'meeting-top-6', 'meeting-bottom-7', 'meeting-bottom-8', 'meeting-bottom-9', 'meeting-bottom-10', 'meeting-bottom-11', 'meeting-bottom-12'],
+        conference: ['meeting-left-1', 'meeting-left-2', 'meeting-left-3', 'meeting-right-4', 'meeting-right-5', 'meeting-right-6'],
+        free: ['free-1', 'free-2', 'free-3', 'free-4', 'free-5'],
+    },
+    5: {
+        meeting: ['meeting-top-1', 'meeting-top-2', 'meeting-top-3', 'meeting-top-4', 'meeting-top-5', 'meeting-top-6', 'meeting-bottom-7', 'meeting-bottom-8', 'meeting-bottom-9', 'meeting-bottom-10', 'meeting-bottom-11', 'meeting-bottom-12'],
+        conference: ['meeting-left-1', 'meeting-left-2', 'meeting-left-3', 'meeting-right-4', 'meeting-right-5', 'meeting-right-6'],
+        free: ['free-1', 'free-2', 'free-3', 'free-4', 'free-5'],
+    },
+    6: {
+        meeting: ['meeting-top-1', 'meeting-top-2', 'meeting-top-3', 'meeting-top-4', 'meeting-top-5', 'meeting-top-6', 'meeting-bottom-7', 'meeting-bottom-8', 'meeting-bottom-9', 'meeting-bottom-10', 'meeting-bottom-11', 'meeting-bottom-12'],
+        conference: ['meeting-left-1', 'meeting-left-2', 'meeting-left-3', 'meeting-right-4', 'meeting-right-5', 'meeting-right-6'],
+        free: ['free-1', 'free-2', 'free-3', 'free-4', 'free-5'],
+    },
+};
+
+function getSeatLayout(seatNumber) {
+    const normalized = String(seatNumber || '').replace(/\s/g, '');
+    const floorMatch = normalized.match(/(?:打合(?:せ)?机?|会議室|フリー席?)[^0-9]*(4|5|6)/);
+    const numberMatch = normalized.match(/[-_]?(\d+)$/);
+    if (!floorMatch || !numberMatch) return '';
+
+    const floor = FLOOR_LAYOUTS[floorMatch[1]];
+    const number = Number(numberMatch[1]);
+    if (!floor) return '';
+
+    if (normalized.includes('会議室')) return floor.conference[number - 1] || '';
+    if (normalized.includes('フリー')) return floor.free[((number - 1) % 5)] || '';
+    return floor.meeting[number - 1] || '';
+}
+
+function getSeatId(seat) {
+    return seat.seat_id ?? seat.id;
+}
+
+function belongsToFloor(seat, floor) {
+    const name = `${seat.seat_number || ''}${seat.seat_name || ''}`.replace(/\s/g, '');
+    return name.includes(`${floor}-`) ||
+           name.includes(`${floor}F`) ||
+           name.includes(`${floor}階`);
 }
 
 /**
@@ -959,22 +1100,21 @@ function renderSeats() {
         const grid = document.getElementById(`seatsGrid-${floor}`);
         if (!grid) return;
 
-        // zone に階数が含まれる席を抽出
-        // zone が未設定の場合は4階扱い
-        const floorSeats = seatsData.filter(seat => {
-            if (!seat.zone) return floor === 4;
-            return seat.zone.includes(`${floor}階`) ||
-                   seat.seat_number.includes(`${floor}-`) ||
-                   seat.seat_number.includes(`${floor}F`);
-        });
+        const floorSeats = seatsData.filter(seat => belongsToFloor(seat, floor));
 
-        // zone が設定されていない場合は全席を4階に表示
+        // 階情報がない旧データは4階に表示
         const targetSeats = floorSeats.length > 0
             ? floorSeats
-            : (floor === 4 ? seatsData : []);
+            : (floor === 4 && !seatsData.some(seat =>
+                belongsToFloor(seat, 5) || belongsToFloor(seat, 6)
+            ) ? seatsData : []);
+
+        const positionedSeats = targetSeats.filter(seat => getSeatLayout(seat.seat_number));
+        const unpositionedSeats = targetSeats.filter(seat => !getSeatLayout(seat.seat_number));
 
         grid.innerHTML = targetSeats.length > 0
-            ? targetSeats.map(createSeatCardHTML).join('')
+            ? positionedSeats.map(createSeatCardHTML).join('') +
+                unpositionedSeats.map(createSeatCardHTML).join('')
             : '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
     });
 
@@ -997,16 +1137,13 @@ function renderTimelines() {
         const wrap = document.getElementById(`timelineWrap-${floor}`);
         if (!wrap) return;
 
-        const floorSeats = seatsData.filter(seat => {
-            if (!seat.zone) return floor === 4;
-            return seat.zone.includes(`${floor}階`) ||
-                   seat.seat_number.includes(`${floor}-`) ||
-                   seat.seat_number.includes(`${floor}F`);
-        });
+        const floorSeats = seatsData.filter(seat => belongsToFloor(seat, floor));
 
         const targetSeats = floorSeats.length > 0
             ? floorSeats
-            : (floor === 4 ? seatsData : []);
+            : (floor === 4 && !seatsData.some(seat =>
+                belongsToFloor(seat, 5) || belongsToFloor(seat, 6)
+            ) ? seatsData : []);
 
         // ヘッダー行
         const headerHTML = `
@@ -1021,7 +1158,7 @@ function renderTimelines() {
         // データ行
         const rowsHTML = targetSeats.map(seat => {
             const seatReservations = reservationsData.filter(r =>
-                r.seat_id === seat.id
+                r.seat_id === getSeatId(seat)
             );
 
             const cellsHTML = TIME_SLOTS.slice(0, -1).map((slot, idx) => {
@@ -1228,7 +1365,7 @@ async function connectSignalR() {
  * 特定の席カードだけをリアルタイム更新する
  */
 function updateSeatCard(seatId, newStatus) {
-    const seat = seatsData.find(s => s.id === seatId);
+    const seat = seatsData.find(s => getSeatId(s) === seatId);
     if (!seat) return;
     seat.status = newStatus;
 

@@ -78,6 +78,8 @@ AZURE_SQL_SERVER=akichanceserver.database.windows.net
 AZURE_SQL_DATABASE=akichanceDB
 AZURE_SQL_USERNAME=g735218@mytecno23.onmicrosoft.com
 AZURE_SQL_PASSWORD=!QAZ2wsx
+SIGNALR_CONNECTION_STRING=Endpoint=https://<your-signalr-name>.service.signalr.net;AccessKey=<your-access-key>;Version=1.0;
+SIGNALR_HUB_NAME=seatHub
 ```
 
 3. Python が .env を自動的に読み込むように以下をインストール:
@@ -100,6 +102,8 @@ pip install python-dotenv
 | `AZURE_SQL_DATABASE` | `akichanceDB` |
 | `AZURE_SQL_USERNAME` | `g735218@mytecno23.onmicrosoft.com` |
 | `AZURE_SQL_PASSWORD` | `!QAZ2wsx` |
+| `SIGNALR_CONNECTION_STRING` | Azure SignalR の接続文字列 |
+| `SIGNALR_HUB_NAME` | `seatHub` |
 
 5. 「OK」をクリックして保存
 
