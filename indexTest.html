@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>テスト</title>
+<style>
+.seat{width:80px;height:80px;display:inline-block;margin:10px;border-radius:8px;text-align:center;line-height:80px;color:white;font-weight:bold;cursor:pointer;}
+</style>
+</head>
+<body>
+<h2>フロアマップテスト</h2>
+<div id="seat-1" class="seat" onclick="cycleStatus(1)">座席1</div>
+<div id="seat-2" class="seat" onclick="cycleStatus(2)">座席2</div>
+<div id="seat-3" class="seat" onclick="cycleStatus(3)">座席3</div>
+<br><br>
+<button onclick="simulateSignalR()">SignalR受信シミュレート</button>
+<script>
+var seats={1:"空き",2:"使用中",3:"予約あり"};
+var colors={"空き":"#4CAF50","使用中":"#F44336","予約あり":"#FF9800"};
+var statusList=["空き","使用中","予約あり"];
+function renderAll(){
+  for(var id in seats){
+    var el=document.getElementById("seat-"+id);
+    el.style.backgroundColor=colors[seats[id]];
+    el.textContent="座席"+id+" "+seats[id];
+  }
+}
+function cycleStatus(id){
+  var i=statusList.indexOf(seats[id]);
+  seats[id]=statusList[(i+1)%3];
+  renderAll();
+}
+function simulateSignalR(){
+  var id=Math.ceil(Math.random()*3);
+  var s=statusList[Math.floor(Math.random()*3)];
+  seats[id]=s;
+  renderAll();
+}
+renderAll();
+</script>
+</body>
+</html>
