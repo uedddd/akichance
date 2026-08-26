@@ -76,6 +76,19 @@
         .seat-card.updating { animation: flash 0.6s ease-in-out; }
 
         .timeline-wrap { overflow-x: auto; }
+        .timeline-filter-bar { background: #f8f9fb; border: 1.5px solid #e0e4ea; border-radius: 10px; padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+        .filter-bar-label { font-size: 12px; font-weight: bold; color: #5a7a9a; white-space: nowrap; }
+        .filter-divider { width: 1px; height: 24px; background: #dde2ea; flex-shrink: 0; }
+        .filter-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .filter-group-label { font-size: 13px; font-weight: 600; color: #1a3a5c; white-space: nowrap; }
+        .filter-checkbox-wrap { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+        .filter-checkbox-wrap input { width: 16px; height: 16px; accent-color: #2d6a9f; cursor: pointer; }
+        .filter-checkbox-wrap span { font-size: 13px; font-weight: 600; color: #1a3a5c; }
+        .filter-active-badge { display: none; font-size: 11px; font-weight: bold; background: #2d6a9f; color: white; border-radius: 10px; padding: 2px 10px; }
+        .filter-active-badge.show { display: inline-block; }
+        .btn-filter-reset { display: none; font-size: 12px; font-weight: 600; color: #888; background: none; border: 1.5px solid #dde2ea; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+        .btn-filter-reset.show { display: inline-block; }
+        .btn-filter-reset:hover { background: #f0f2f5; color: #555; }
         .timeline-table { border-collapse: collapse; min-width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
         .tl-label-col { width: 160px; min-width: 160px; }
         .tl-time-col  { width: 60px; min-width: 60px; }
@@ -273,6 +286,7 @@ const TL_END_MIN   = 18 * 60;
 const TL_UNIT_MIN  = 15;
 const TL_CELL_PX   = 60;
 const TL_SLOTS     = (TL_END_MIN - TL_START_MIN) / TL_UNIT_MIN;
+const timelineFilters = {};
 
 const STATUS_LABEL = {
     available : '空き',
@@ -484,6 +498,31 @@ function renderTimelines() {
             return;
         }
 
+        const filter = timelineFilters[floor.floor_id] || { types: [], monitor: false, caps: [] };
+        const filterHtml = `
+            <div class="timeline-filter-bar">
+                <span class="filter-bar-label">🔍 絞り込み</span>
+                <div class="filter-divider"></div>
+                <div class="filter-group">
+                    <span class="filter-group-label">種別：</span>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-type-filter" value="desk"><span>打合せ机</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-type-filter" value="conf"><span>会議室</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-type-filter" value="free"><span>フリー</span></label>
+                </div>
+                <div class="filter-divider"></div>
+                <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-monitor-filter"><span>🖥️ モニターあり</span></label>
+                <div class="filter-divider"></div>
+                <div class="filter-group">
+                    <span class="filter-group-label">👥 人数：</span>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-cap-filter" value="4"><span>4名</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-cap-filter" value="6"><span>6名</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-cap-filter" value="8"><span>8名</span></label>
+                </div>
+                <div class="filter-divider"></div>
+                <span class="filter-active-badge">フィルター適用中</span>
+                <button class="btn-filter-reset" type="button">✕ リセット</button>
+            </div>`;
+
         let headerCells = `<th class="tl-label-col">席名</th>`;
         for (let i = 0; i < TL_SLOTS; i++) {
             const absMin      = TL_START_MIN + i * TL_UNIT_MIN;
@@ -547,15 +586,55 @@ function renderTimelines() {
                     cells += `<td class="tl-cell ${borderCls}"></td>`;
                 }
             }
-            return `<tr>${cells}</tr>`;
+            return `<tr data-seat-type="${seat.seat_type}" data-capacity="${seat.capacity || ''}" data-monitor="${seat.has_monitor}">${cells}</tr>`;
         }).join('');
 
         wrap.innerHTML = `
+            ${filterHtml}
             <table class="timeline-table">
                 <thead><tr>${headerCells}</tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
+
+        const typeFilters = wrap.querySelectorAll('.timeline-type-filter');
+        typeFilters.forEach(input => { input.checked = filter.types.includes(input.value); });
+        wrap.querySelector('.timeline-monitor-filter').checked = filter.monitor;
+        wrap.querySelectorAll('.timeline-cap-filter').forEach(input => { input.checked = filter.caps.includes(Number(input.value)); });
+        typeFilters.forEach(input => input.addEventListener('change', () => applyTimelineFilter(floor.floor_id)));
+        wrap.querySelector('.timeline-monitor-filter').addEventListener('change', () => applyTimelineFilter(floor.floor_id));
+        wrap.querySelectorAll('.timeline-cap-filter').forEach(input => input.addEventListener('change', () => applyTimelineFilter(floor.floor_id)));
+        wrap.querySelector('.btn-filter-reset').addEventListener('click', () => resetTimelineFilter(floor.floor_id));
+        applyTimelineFilter(floor.floor_id);
     });
+}
+
+function applyTimelineFilter(floorId) {
+    const wrap = document.getElementById(`timelineWrap-${floorId}`);
+    if (!wrap) return;
+
+    const types = [...wrap.querySelectorAll('.timeline-type-filter:checked')].map(input => input.value);
+    const monitor = wrap.querySelector('.timeline-monitor-filter').checked;
+    const caps = [...wrap.querySelectorAll('.timeline-cap-filter:checked')].map(input => Number(input.value));
+    timelineFilters[floorId] = { types, monitor, caps };
+    const isActive = types.length > 0 || monitor || caps.length > 0;
+
+    wrap.querySelector('.filter-active-badge').classList.toggle('show', isActive);
+    wrap.querySelector('.btn-filter-reset').classList.toggle('show', isActive);
+    wrap.querySelectorAll('tbody tr').forEach(row => {
+        const passType = types.length === 0 || types.includes(row.dataset.seatType);
+        const passMonitor = !monitor || row.dataset.seatType !== 'desk' || row.dataset.monitor === 'true';
+        const capacity = row.dataset.capacity ? Number(row.dataset.capacity) : null;
+        const passCapacity = caps.length === 0 || row.dataset.seatType !== 'desk' || (capacity !== null && caps.includes(capacity));
+        row.style.display = passType && passMonitor && passCapacity ? '' : 'none';
+    });
+}
+
+function resetTimelineFilter(floorId) {
+    timelineFilters[floorId] = { types: [], monitor: false, caps: [] };
+    const wrap = document.getElementById(`timelineWrap-${floorId}`);
+    if (!wrap) return;
+    wrap.querySelectorAll('input').forEach(input => { input.checked = false; });
+    applyTimelineFilter(floorId);
 }
 
 // ============================================================
