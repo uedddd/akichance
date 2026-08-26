@@ -1002,4 +1002,47 @@ def cancel_reservation_by_id(
         message="予約をキャンセルしました",
     )
 
-    
+# ---------------------------------------------------------------------------
+# outlook_event_id でキャンセルするエンドポイント
+# ---------------------------------------------------------------------------
+
+class CancelByOutlookEventRequest(BaseModel):
+    outlook_event_id: str = Field(..., description="OutlookイベントID")
+
+
+@app.post("/api/reservations/cancel/by-outlook-event",
+          response_model=CancelResponse)
+def cancel_by_outlook_event(
+    payload: CancelByOutlookEventRequest,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    """outlook_event_id で予約をキャンセルする（Power Automate連携用）"""
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT reservation_id FROM reservations WHERE outlook_event_id = ?",
+        (payload.outlook_event_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="該当する予約が見つかりません"
+        )
+
+    reservation_id = row[0]
+    cursor.execute(
+        """
+        UPDATE reservations
+        SET status     = 'cancelled',
+            updated_at = GETDATE()
+        WHERE reservation_id = ?
+        """,
+        (reservation_id,),
+    )
+    conn.commit()
+
+    return CancelResponse(
+        status="cancelled",
+        reservation_id=reservation_id,
+        message="予約をキャンセルしました",
+    )    
