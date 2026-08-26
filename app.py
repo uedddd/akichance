@@ -37,10 +37,10 @@ AZURE_SQL_SERVER: str = os.getenv(
     "AZURE_SQL_SERVER", "akichanceserver.database.windows.net"
 )
 AZURE_SQL_DATABASE: str = os.getenv("AZURE_SQL_DATABASE", "akichanceDB")
-AZURE_CLIENT_ID: str = os.getenv("AZURE_CLIENT_ID", "")
+AZURE_CLIENT_ID: str    = os.getenv("AZURE_CLIENT_ID", "")
 AZURE_CLIENT_SECRET: str = os.getenv("AZURE_CLIENT_SECRET", "")
-AZURE_TENANT_ID: str = os.getenv("AZURE_TENANT_ID", "")
-AZURE_SQL_DRIVER: str = os.getenv(
+AZURE_TENANT_ID: str    = os.getenv("AZURE_TENANT_ID", "")
+AZURE_SQL_DRIVER: str   = os.getenv(
     "AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server"
 )
 
@@ -85,7 +85,7 @@ def open_connection() -> pyodbc.Connection:
 app = FastAPI(
     title="Akichance Reservation / Seat Management API",
     description="Reservation and seat management API for Akichance. (Azure SQL)",
-    version="3.4.0",
+    version="3.5.0",
 )
 
 # ---------------------------------------------------------------------------
@@ -99,8 +99,7 @@ class FloorRead(BaseModel):
     floor_order: int
     is_active: bool
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 # ---------------------------------------------------------------------------
@@ -120,36 +119,35 @@ class SeatRead(BaseModel):
     capacity: Optional[int] = None
     has_monitor: bool
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class SeatCreate(BaseModel):
     """座席作成リクエストモデル"""
-    floor_id: int = Field(..., description="所属フロアID")
-    seat_name: str = Field(..., description="座席名（表示用）")
-    status: str = Field("empty", description="座席ステータス")
-    is_active: bool = Field(True, description="予約受付フラグ")
-    seat_type: str = Field("desk", description="座席種別")
-    capacity: Optional[int] = Field(None, description="収容人数")
-    has_monitor: bool = Field(False, description="モニター有無")
+    floor_id: int            = Field(..., description="所属フロアID")
+    seat_name: str           = Field(..., description="座席名（表示用）")
+    status: str              = Field("empty", description="座席ステータス")
+    is_active: bool          = Field(True, description="予約受付フラグ")
+    seat_type: str           = Field("desk", description="座席種別")
+    capacity: Optional[int]  = Field(None, description="収容人数")
+    has_monitor: bool        = Field(False, description="モニター有無")
 
 
 class SeatUpdate(BaseModel):
     """座席更新リクエストモデル（全フィールド任意）"""
-    floor_id: Optional[int] = None
-    seat_name: Optional[str] = None
-    status: Optional[str] = None
+    floor_id: Optional[int]   = None
+    seat_name: Optional[str]  = None
+    status: Optional[str]     = None
     is_active: Optional[bool] = None
-    seat_type: Optional[str] = None
-    capacity: Optional[int] = None
+    seat_type: Optional[str]  = None
+    capacity: Optional[int]   = None
     has_monitor: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
 # Pydantic モデル定義（予約）
 # ---------------------------------------------------------------------------
-# reservations テーブルの status CHECK 制約:
+# reservations.status の CHECK 制約:
 #   reserved / in_use / cancelled / expired / completed
 
 class ReservationRead(BaseModel):
@@ -157,36 +155,35 @@ class ReservationRead(BaseModel):
     reservation_id: int
     seat_id: int
     user_id: int
-    outlook_event_id: Optional[str] = None
+    outlook_event_id: Optional[str]  = None
     start_datetime: datetime
     end_datetime: datetime
     status: str
-    notified_at: Optional[datetime] = None
+    notified_at: Optional[datetime]  = None
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class ReservationCreate(BaseModel):
     """予約作成リクエストモデル"""
-    user_id: int = Field(..., description="予約者のユーザーID")
-    seat_id: int = Field(..., description="予約する座席ID")
-    start_datetime: datetime = Field(..., description="予約開始日時")
-    end_datetime: datetime = Field(..., description="予約終了日時")
-    status: str = Field("reserved", description="予約ステータス")  # reserved / in_use / cancelled / expired / completed
-    outlook_event_id: Optional[str] = Field(None, description="OutlookイベントID")
+    user_id: int                     = Field(..., description="予約者のユーザーID")
+    seat_id: int                     = Field(..., description="予約する座席ID")
+    start_datetime: datetime         = Field(..., description="予約開始日時")
+    end_datetime: datetime           = Field(..., description="予約終了日時")
+    status: str                      = Field("reserved", description="予約ステータス")
+    outlook_event_id: Optional[str]  = Field(None, description="OutlookイベントID")
 
 
 class ReservationUpdate(BaseModel):
     """予約更新リクエストモデル（全フィールド任意）"""
-    user_id: Optional[int] = None
-    seat_id: Optional[int] = None
+    user_id: Optional[int]           = None
+    seat_id: Optional[int]           = None
     start_datetime: Optional[datetime] = None
-    end_datetime: Optional[datetime] = None
-    status: Optional[str] = None
-    outlook_event_id: Optional[str] = None
+    end_datetime: Optional[datetime]   = None
+    status: Optional[str]            = None
+    outlook_event_id: Optional[str]  = None
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +322,6 @@ def serve_index() -> FileResponse:
 # 共通バリデーション
 # ---------------------------------------------------------------------------
 
-# reservations.status に許可された値
 VALID_RESERVATION_STATUS = {"reserved", "in_use", "cancelled", "expired", "completed"}
 
 
@@ -401,8 +397,8 @@ def list_floors(
 
 @app.get("/api/seats", response_model=List[SeatRead])
 def list_seats(
-    active_only: bool = Query(False, description="True: 有効な座席のみ取得"),
-    floor_id: Optional[int] = Query(None, description="フロアIDで絞り込み"),
+    active_only: bool       = Query(False, description="True: 有効な座席のみ取得"),
+    floor_id: Optional[int] = Query(None,  description="フロアIDで絞り込み"),
     conn: pyodbc.Connection = Depends(get_connection),
 ):
     """seats テーブルから座席一覧を取得する"""
@@ -416,7 +412,6 @@ def list_seats(
 
     if active_only:
         query += " AND is_active = 1"
-
     if floor_id is not None:
         query += " AND floor_id = ?"
         params.append(floor_id)
@@ -440,8 +435,7 @@ def get_seat(
         """
         SELECT seat_id, floor_id, seat_name, status, is_active,
                created_at, updated_at, seat_type, capacity, has_monitor
-        FROM seats
-        WHERE seat_id = ?
+        FROM seats WHERE seat_id = ?
         """,
         (seat_id,),
     )
@@ -512,7 +506,7 @@ def update_seat(
         raise HTTPException(status_code=404, detail="Seat not found")
 
     current     = row_to_dict(cursor, row)
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
     current.update(update_data)
 
     cursor.execute(
@@ -662,8 +656,7 @@ def get_reservation(
         SELECT reservation_id, seat_id, user_id, outlook_event_id,
                start_datetime, end_datetime, status, notified_at,
                created_at, updated_at
-        FROM reservations
-        WHERE reservation_id = ?
+        FROM reservations WHERE reservation_id = ?
         """,
         (reservation_id,),
     )
@@ -684,7 +677,6 @@ def create_reservation(
 
     cursor = conn.cursor()
 
-    # 座席の存在確認
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
         (payload.seat_id,),
@@ -692,7 +684,6 @@ def create_reservation(
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Seat not found or inactive")
 
-    # 重複チェック
     if is_overlapping(conn, payload.seat_id, payload.start_datetime, payload.end_datetime):
         raise HTTPException(
             status_code=409,
@@ -758,7 +749,7 @@ def update_reservation(
         raise HTTPException(status_code=404, detail="Reservation not found")
 
     current     = row_to_dict(cursor, row)
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
     current.update(update_data)
 
     start: datetime = current["start_datetime"]
@@ -769,7 +760,6 @@ def update_reservation(
     if "status" in update_data:
         assert_reservation_status(current["status"])
 
-    # 座席の存在確認
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
         (current["seat_id"],),
@@ -777,7 +767,6 @@ def update_reservation(
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Seat not found or inactive")
 
-    # 重複チェック（自分自身を除外）
     if is_overlapping(
         conn,
         current["seat_id"],
@@ -899,7 +888,6 @@ def sync_outlook_reservation(
     existing = cursor.fetchone()
 
     if existing is not None:
-        # 既存予約を更新
         reservation_id = existing[0]
         cursor.execute(
             """
@@ -969,7 +957,7 @@ def cancel_reservation_by_id(
     reservation_id: int,
     conn: pyodbc.Connection = Depends(get_connection),
 ):
-    """予約をキャンセルし、Power Automate 経由で Outlook 予定を削除する"""
+    """予約をキャンセルする（reservation_id 指定）"""
     cursor = conn.cursor()
     cursor.execute(
         """
@@ -995,7 +983,6 @@ def cancel_reservation_by_id(
     )
     conn.commit()
 
-    # Power Automate へ通知（失敗しても処理続行）
     if POWER_AUTOMATE_CANCEL_URL:
         try:
             http_requests.post(
