@@ -1086,3 +1086,157 @@ def cancel_reservation(
         reservation_id=reservation_id,
         message="予約をキャンセルしました",
     )
+
+    # ============================================================
+# Power Automate 連携エンドポイント
+# ============================================================
+
+class OutlookSyncPayload(BaseModel):
+    outlook_event_id: str
+    user_name: str
+    email: str
+    seat_number: str
+    start_time: datetime
+    end_time: datetime
+
+
+class OutlookCancelPayload(BaseModel):
+    outlook_event_id: str
+
+
+class SyncResponse(BaseModel):
+    action: str
+    reservation_id: int
+    outlook_event_id: str
+
+
+@app.post("/api/reservations/sync", response_model=SyncResponse)
+def sync_reservation(
+    payload: OutlookSyncPayload,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    assert_time_range(payload.start_time, payload.end_time)
+    cursor = conn.cursor()
+
+    # seat_number から seat_id を取得
+    cursor.execute(
+        "SELECT id FROM seats WHERE seat_number = ? AND is_active = 1",
+        (payload.seat_number,),
+    )
+    seat = cursor.fetchone()
+    if seat is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"席番号 {payload.seat_number} が見つかりません"
+        )
+    seat_id = seat[0]
+
+    # outlook_event_id で既存予約を検索
+    cursor.execute(
+        "SELECT * FROM reservations WHERE outlook_event_id = ?",
+        (payload.outlook_event_id,),
+    )
+    existing = cursor.fetchone()
+
+    if existing is None:
+        # 新規作成
+        if is_overlapping(conn, seat_id, payload.start_time, payload.end_time):
+            raise HTTPException(
+                status_code=409,
+                detail="この時間帯はすでに予約されています"
+            )
+        cursor.execute(
+            """
+            INSERT INTO reservations
+                (user_name, email, seat_id, start_time, end_time,
+                 status, outlook_event_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            SELECT SCOPE_IDENTITY() AS id;
+            """,
+            (
+                payload.user_name,
+                payload.email,
+                seat_id,
+                payload.start_time,
+                payload.end_time,
+                "confirmed",
+                payload.outlook_event_id,
+            ),
+        )
+        cursor.nextset()
+        reservation_id = int(cursor.fetchone()[0])
+        conn.commit()
+
+        return SyncResponse(
+            action="created",
+            reservation_id=reservation_id,
+            outlook_event_id=payload.outlook_event_id,
+        )
+
+    else:
+        # 既存予約を更新
+        existing_dict = row_to_dict(cursor, existing)
+        reservation_id = existing_dict["id"]
+
+        cursor.execute(
+            """
+            UPDATE reservations
+            SET user_name  = ?,
+                email      = ?,
+                seat_id    = ?,
+                start_time = ?,
+                end_time   = ?,
+                status     = ?
+            WHERE outlook_event_id = ?
+            """,
+            (
+                payload.user_name,
+                payload.email,
+                seat_id,
+                payload.start_time,
+                payload.end_time,
+                "confirmed",
+                payload.outlook_event_id,
+            ),
+        )
+        conn.commit()
+
+        return SyncResponse(
+            action="updated",
+            reservation_id=reservation_id,
+            outlook_event_id=payload.outlook_event_id,
+        )
+
+
+@app.delete("/api/reservations/cancel", status_code=200)
+def cancel_reservation(
+    payload: OutlookCancelPayload,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id FROM reservations WHERE outlook_event_id = ?",
+        (payload.outlook_event_id,),
+    )
+    row = cursor.fetchone()
+
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="該当する予約が見つかりません"
+        )
+
+    reservation_id = row[0]
+
+    cursor.execute(
+        "UPDATE reservations SET status = ? WHERE id = ?",
+        ("cancelled", reservation_id),
+    )
+    conn.commit()
+
+    return {
+        "action": "cancelled",
+        "reservation_id": reservation_id,
+        "outlook_event_id": payload.outlook_event_id,
+    }
