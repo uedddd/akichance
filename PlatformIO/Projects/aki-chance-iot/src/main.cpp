@@ -37,7 +37,7 @@ String generateSasToken() {
         else encodedUri += c;
     }
 
-    unsigned long expiry = 1900000000UL;
+    unsigned long expiry = 2000000000UL;
     String stringToSign = encodedUri + "\n" + String(expiry);
 
     String keyStr = String(SHARED_ACCESS_KEY);
@@ -106,6 +106,7 @@ if (WiFi.status() == WL_CONNECTED) {
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
     mqttClient.setSocketTimeout(60);
     mqttClient.setBufferSize(1024);
+     mqttClient.setKeepAlive(3600);
 
     connectMQTT();
 }
@@ -116,24 +117,32 @@ void loop() {
 
     if (mqttReady) {
         if (!mqttClient.connected()) {
-            connectMQTT();
+            Serial.println("MQTT disconnected! Reconnecting...");
+            M5.Lcd.setCursor(0, 220);
+            M5.Lcd.setTextSize(1);
+            M5.Lcd.setTextColor(RED, BLACK);
+            M5.Lcd.print("Reconnecting...     ");
+            connectMQTT();  // ✅ 切れたら即再接続
         }
         mqttClient.loop();
     }
 
-    if (M5.BtnA.wasPressed() && !isSeatInUse) {
+    // ✅ ボタンA → IN USE
+    if (M5.BtnA.wasPressed()) {
         isSeatInUse = true;
         sendSeatStatus(true);
         updateDisplay(true);
     }
 
-    if (M5.BtnC.wasPressed() && isSeatInUse) {
+    // ✅ ボタンB → AVAILABLE
+    if (M5.BtnB.wasPressed()) {
         isSeatInUse = false;
         sendSeatStatus(false);
         updateDisplay(false);
     }
 
-    if (M5.BtnB.wasPressed()) {
+    // ✅ ボタンC → 画面リフレッシュ
+    if (M5.BtnC.wasPressed()) {
         updateDisplay(isSeatInUse);
     }
 
@@ -257,6 +266,11 @@ void updateDisplay(bool inUse) {
     M5.Lcd.println("=== Aki-Chance ===");
     M5.Lcd.println("");
 
+    // ✅ 席名を追加
+    M5.Lcd.setTextColor(YELLOW, BLACK);
+    M5.Lcd.println(SEAT_NAME);
+    M5.Lcd.println("");
+
     if (inUse) {
         M5.Lcd.setTextColor(RED, BLACK);
         M5.Lcd.println("  [ IN USE ]");
@@ -269,7 +283,7 @@ void updateDisplay(bool inUse) {
 
     M5.Lcd.setTextColor(WHITE, BLACK);
     M5.Lcd.println("");
-    M5.Lcd.println("A:In Use  C:Available");
+    M5.Lcd.println("A:InUse  B:Available");
 
     M5.Lcd.setCursor(0, 220);
     M5.Lcd.setTextSize(1);

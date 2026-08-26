@@ -6,8 +6,9 @@
 
 #define IOT_HUB_HOSTNAME  "AkiChanceIoTHub.azure-devices.net"
 #define DEVICE_ID         "m5go-button-01"
-#define SHARED_ACCESS_KEY "xOeZefFPb2idFmVnzj3UXJAa1VDCPwqwJs+f0XYTnMQ="
+#define SHARED_ACCESS_KEY "0glL5AsjSizjKiK0Ipm7yvXmEWVefZa12rKN0phOno0="
 
-#define SEAT_ID 2
+#define SEAT_ID 52
+#define SEAT_NAME "Table 6-1-2"
 
 #endif
