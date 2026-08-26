@@ -1082,7 +1082,7 @@ def sync_reservation(
 
     # seat_number から seat_id を取得
     cursor.execute(
-        "SELECT id FROM seats WHERE seat_number = ? AND is_active = 1",
+        "SELECT seat_id FROM seats WHERE seat_name = ? AND is_active = 1",
         (payload.seat_number,),
     )
     seat = cursor.fetchone()
