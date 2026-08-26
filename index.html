@@ -10,161 +10,181 @@
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
 
         /* ヘッダー */
-        .header { background: #1a3a5c; color: white; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
-        .header-left { display: flex; align-items: center; gap: 10px; }
-        .header-icon { font-size: 22px; }
-        .header-title { font-size: 18px; font-weight: bold; }
-        .connection-status { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #888; }
+        .header { background: #1a3a5c; color: white; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 8px; }
+        .header-icon { font-size: 18px; }
+        .header-title { font-size: 16px; font-weight: bold; }
+        .connection-status { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #888; }
         .status-dot.connected    { background: #4CAF50; }
         .status-dot.disconnected { background: #F44336; }
         .status-dot.connecting   { background: #FF9800; }
 
-        /* 集計バー */
+        /* 集計バー・凡例を1行に */
         .summary-bar {
             background: white;
-            padding: 12px 24px;
+            padding: 8px 20px;
             display: flex;
             align-items: center;
-            gap: 0;
             border-bottom: 1px solid #e0e0e0;
-            flex-wrap: wrap;
+            gap: 0;
+            flex-wrap: nowrap;
         }
-        .summary-item { display: flex; flex-direction: column; align-items: center; margin-right: 28px; }
-        .summary-count { font-size: 28px; font-weight: bold; line-height: 1; }
-        .summary-label { font-size: 11px; color: #888; margin-top: 2px; }
+        .summary-item { display: flex; align-items: baseline; gap: 4px; margin-right: 20px; }
+        .summary-count { font-size: 22px; font-weight: bold; line-height: 1; }
+        .summary-label { font-size: 11px; color: #888; }
         .count-total    { color: #1a3a5c; }
         .count-empty    { color: #4CAF50; }
         .count-in-use   { color: #F44336; }
         .count-reserved { color: #FF9800; }
-
-        .summary-divider { width: 1px; height: 36px; background: #e0e0e0; margin-right: 28px; }
-
-        /* 凡例 */
-        .legend { display: flex; align-items: center; gap: 16px; margin-left: 8px; flex-wrap: wrap; }
-        .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
-        .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-        .legend-monitor { font-size: 12px; color: #1976D2; }
+        .summary-divider { width: 1px; height: 28px; background: #e0e0e0; margin-right: 20px; }
+        .legend { display: flex; align-items: center; gap: 14px; }
+        .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #555; white-space: nowrap; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 
         /* タブ */
-        .tabs { background: white; padding: 0 24px; display: flex; border-bottom: 2px solid #e0e0e0; }
-        .tab-btn { padding: 12px 20px; border: none; background: none; font-size: 14px; font-weight: bold; color: #888; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color 0.2s, border-color 0.2s; display: flex; align-items: center; gap: 6px; }
+        .tabs { background: white; padding: 0 20px; display: flex; border-bottom: 2px solid #e0e0e0; }
+        .tab-btn { padding: 8px 16px; border: none; background: none; font-size: 13px; font-weight: bold; color: #888; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color 0.2s, border-color 0.2s; }
         .tab-btn.active { color: #1a3a5c; border-bottom-color: #1a3a5c; }
         .tab-btn:hover { color: #1a3a5c; }
 
         .tab-content { display: none; }
         .tab-content.active { display: block; }
-        .main { padding: 20px 24px; max-width: 1500px; margin: 0 auto; }
+
+        /* メイン：上下左右パディングを削減 */
+        .main { padding: 12px 16px; }
 
         /* フロアマップヘッダー */
-        .floor-map-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-        .floor-map-title { font-size: 16px; font-weight: bold; color: #1a3a5c; display: flex; align-items: center; gap: 6px; }
-
-        /* ドロップダウン */
+        .floor-map-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .floor-map-title  { font-size: 14px; font-weight: bold; color: #1a3a5c; }
         .floor-select {
-            padding: 6px 28px 6px 12px;
+            padding: 4px 24px 4px 10px;
             border: 1px solid #ccc;
-            border-radius: 6px;
-            font-size: 13px;
+            border-radius: 5px;
+            font-size: 12px;
             font-weight: bold;
             color: #1a3a5c;
             background: white;
             cursor: pointer;
             appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%23666' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24'%3E%3Cpath fill='%23666' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
-            background-position: right 8px center;
+            background-position: right 6px center;
         }
         .floor-select:focus { outline: none; border-color: #1a3a5c; }
 
         /* フロアマップ外枠 */
         .floor-map-container {
             background: #eef2f7;
-            border-radius: 12px;
-            padding: 24px;
-            min-height: 500px;
-            position: relative;
+            border-radius: 10px;
+            padding: 16px;
         }
 
-        /* 固定レイアウトグリッド
-           列: 会議室左(1) | 空白(2) | 打合せ机×6(3-8) | 空白(9) | 会議室右(10)
-           行: conf上(1-3) | 空白(4) | desk下(5-6) | 空白(7) | free(8)
-        */
+        /*
+         * 固定グリッドレイアウト
+         * 列構成：
+         *   col1  = 会議室左（100px）
+         *   col2  = gap（16px）
+         *   col3～8 = 打合せ机×6（90px×6）
+         *   col9  = gap（16px）
+         *   col10 = 会議室右（100px）
+         *
+         * 行構成：
+         *   row1  = conf上
+         *   row2  = gap（8px）
+         *   row3  = conf中
+         *   row4  = gap（8px）
+         *   row5  = conf下
+         *   row6  = gap（20px）
+         *   row7  = desk上段
+         *   row8  = gap（8px）
+         *   row9  = desk下段
+         *   row10 = gap（20px）
+         *   row11 = free
+         */
         .floor-grid {
             display: grid;
             grid-template-columns:
-                120px   /* 会議室左 */
-                32px    /* 空白 */
-                repeat(6, 110px) /* 打合せ机 6列 */
-                32px    /* 空白 */
-                120px;  /* 会議室右 */
+                100px 16px
+                repeat(6, 90px)
+                16px 100px;
             grid-template-rows:
-                auto    /* conf row1 */
-                12px    /* gap */
-                auto    /* conf row2 */
-                12px    /* gap */
-                auto    /* conf row3 */
-                32px    /* 大きめ空白 */
-                auto    /* desk row1 */
-                12px    /* gap */
-                auto    /* desk row2 */
-                32px    /* 大きめ空白 */
-                auto;   /* free row */
-            gap: 0;
-            column-gap: 8px;
+                auto 8px auto 8px auto
+                20px
+                auto 8px auto
+                20px
+                auto;
+            column-gap: 6px;
         }
 
         /* ========================================
-           席カード共通
+           グリッド配置クラス
+        ======================================== */
+        .pos-conf-left-1  { grid-column: 1;  grid-row: 1; }
+        .pos-conf-left-2  { grid-column: 1;  grid-row: 3; }
+        .pos-conf-left-3  { grid-column: 1;  grid-row: 5; }
+        .pos-conf-right-1 { grid-column: 10; grid-row: 1; }
+        .pos-conf-right-2 { grid-column: 10; grid-row: 3; }
+        .pos-conf-right-3 { grid-column: 10; grid-row: 5; }
+        .pos-desk-top-1   { grid-column: 3;  grid-row: 7; }
+        .pos-desk-top-2   { grid-column: 4;  grid-row: 7; }
+        .pos-desk-top-3   { grid-column: 5;  grid-row: 7; }
+        .pos-desk-top-4   { grid-column: 6;  grid-row: 7; }
+        .pos-desk-top-5   { grid-column: 7;  grid-row: 7; }
+        .pos-desk-top-6   { grid-column: 8;  grid-row: 7; }
+        .pos-desk-bot-1   { grid-column: 3;  grid-row: 9; }
+        .pos-desk-bot-2   { grid-column: 4;  grid-row: 9; }
+        .pos-desk-bot-3   { grid-column: 5;  grid-row: 9; }
+        .pos-desk-bot-4   { grid-column: 6;  grid-row: 9; }
+        .pos-desk-bot-5   { grid-column: 7;  grid-row: 9; }
+        .pos-desk-bot-6   { grid-column: 8;  grid-row: 9; }
+        .pos-free-left-1  { grid-column: 1;  grid-row: 11; }
+        .pos-free-left-2  { grid-column: 2;  grid-row: 11; }
+        .pos-free-right-1 { grid-column: 8;  grid-row: 11; }
+        .pos-free-right-2 { grid-column: 9;  grid-row: 11; }
+        .pos-free-right-3 { grid-column: 10; grid-row: 11; }
+
+        /* ========================================
+           席カード
         ======================================== */
         .seat-card {
             background: white;
-            border-radius: 8px;
-            padding: 10px 12px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+            border-radius: 7px;
+            padding: 8px 9px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.10);
             border: 2px solid #e0e0e0;
-            position: relative;
-            min-width: 0;
         }
-
-        /* ステータス別ボーダー色 */
         .seat-card.available { border-color: #4CAF50; }
         .seat-card.in_use    { border-color: #F44336; background: #fff8f8; }
         .seat-card.reserved  { border-color: #FF9800; background: #fff9f0; }
 
         .seat-card-name {
-            font-size: 11px;
+            font-size: 10px;
             font-weight: bold;
             color: #333;
-            margin-bottom: 4px;
+            margin-bottom: 3px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
-
         .seat-card-capacity {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: bold;
             color: #1a3a5c;
             line-height: 1.1;
-            margin-bottom: 4px;
+            margin-bottom: 3px;
         }
-        .seat-card-capacity span { font-size: 11px; font-weight: normal; color: #888; }
+        .seat-card-capacity span { font-size: 10px; font-weight: normal; color: #888; }
 
         .seat-card-status {
             display: flex;
             align-items: center;
-            gap: 5px;
-            font-size: 11px;
+            gap: 4px;
+            font-size: 10px;
             font-weight: bold;
-            margin-bottom: 4px;
+            margin-bottom: 3px;
         }
-        .seat-card-status .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
         .dot-available { background: #4CAF50; }
         .dot-in_use    { background: #F44336; }
         .dot-reserved  { background: #FF9800; }
@@ -172,164 +192,124 @@
         .label-in_use    { color: #F44336; }
         .label-reserved  { color: #FF9800; }
 
-        .seat-card-detail { font-size: 10px; color: #888; margin-bottom: 6px; min-height: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
+        .seat-card-detail {
+            font-size: 9px;
+            color: #888;
+            margin-bottom: 4px;
+            min-height: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         .monitor-badge {
             display: inline-flex;
             align-items: center;
-            gap: 3px;
+            gap: 2px;
             background: #e3f0fb;
             color: #1976D2;
-            border-radius: 4px;
-            font-size: 10px;
+            border-radius: 3px;
+            font-size: 9px;
             font-weight: bold;
-            padding: 2px 6px;
-            margin-bottom: 6px;
+            padding: 1px 5px;
+            margin-bottom: 4px;
         }
 
-        /* 予約ボタン */
         .reserve-btn {
             width: 100%;
-            padding: 6px 4px;
+            padding: 5px 2px;
             background: #1a3a5c;
             color: white;
             border: none;
-            border-radius: 5px;
-            font-size: 12px;
+            border-radius: 4px;
+            font-size: 11px;
             font-weight: bold;
             cursor: pointer;
             transition: background 0.2s;
-            margin-top: 2px;
         }
-        .reserve-btn:hover { background: #2d5a8e; }
-        .reserve-btn.in_use { background: #c62828; }
+        .reserve-btn:hover    { background: #2d5a8e; }
+        .reserve-btn.in_use   { background: #c62828; }
         .reserve-btn.in_use:hover { background: #b71c1c; }
         .reserve-btn.reserved { background: #e65100; }
         .reserve-btn.reserved:hover { background: #bf360c; }
 
-        /* キャンセルボタン */
         .cancel-btn {
             width: 100%;
-            padding: 5px 4px;
+            padding: 4px 2px;
             border: 1px solid #F44336;
             background: white;
-            border-radius: 5px;
-            font-size: 11px;
+            border-radius: 4px;
+            font-size: 10px;
             font-weight: bold;
             color: #F44336;
             cursor: pointer;
             transition: background 0.2s, color 0.2s;
-            margin-top: 4px;
+            margin-top: 3px;
         }
         .cancel-btn:hover { background: #F44336; color: white; }
 
-        /* グリッド配置定義 */
-        /* 会議室左列（col 1） */
-        .pos-conf-left-1  { grid-column: 1; grid-row: 1; }
-        .pos-conf-left-2  { grid-column: 1; grid-row: 3; }
-        .pos-conf-left-3  { grid-column: 1; grid-row: 5; }
-        /* 会議室右列（col 10） */
-        .pos-conf-right-1 { grid-column: 10; grid-row: 1; }
-        .pos-conf-right-2 { grid-column: 10; grid-row: 3; }
-        .pos-conf-right-3 { grid-column: 10; grid-row: 5; }
-        /* 打合せ机上段（col 3-8, row 7） */
-        .pos-desk-top-1   { grid-column: 3; grid-row: 7; }
-        .pos-desk-top-2   { grid-column: 4; grid-row: 7; }
-        .pos-desk-top-3   { grid-column: 5; grid-row: 7; }
-        .pos-desk-top-4   { grid-column: 6; grid-row: 7; }
-        .pos-desk-top-5   { grid-column: 7; grid-row: 7; }
-        .pos-desk-top-6   { grid-column: 8; grid-row: 7; }
-        /* 打合せ机下段（col 3-8, row 9） */
-        .pos-desk-bot-1   { grid-column: 3; grid-row: 9; }
-        .pos-desk-bot-2   { grid-column: 4; grid-row: 9; }
-        .pos-desk-bot-3   { grid-column: 5; grid-row: 9; }
-        .pos-desk-bot-4   { grid-column: 6; grid-row: 9; }
-        .pos-desk-bot-5   { grid-column: 7; grid-row: 9; }
-        .pos-desk-bot-6   { grid-column: 8; grid-row: 9; }
-        /* フリースペース左（col 1-2, row 11） */
-        .pos-free-left-1  { grid-column: 1; grid-row: 11; }
-        .pos-free-left-2  { grid-column: 2; grid-row: 11; }
-        /* フリースペース右（col 8-10, row 11） */
-        .pos-free-right-1 { grid-column: 8;  grid-row: 11; }
-        .pos-free-right-2 { grid-column: 9;  grid-row: 11; }
-        .pos-free-right-3 { grid-column: 10; grid-row: 11; }
-
-        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        @keyframes flash { 0% { opacity:1; } 50% { opacity:0.4; } 100% { opacity:1; } }
         .seat-card.updating { animation: flash 0.6s ease-in-out; }
 
         /* ========================================
            タイムライン（30分単位）
         ======================================== */
         .timeline-wrap { overflow-x: auto; }
-        .timeline-filter-bar { background: #f8f9fb; border: 1.5px solid #e0e4ea; border-radius: 10px; padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
-        .filter-bar-label { font-size: 12px; font-weight: bold; color: #5a7a9a; white-space: nowrap; }
-        .filter-divider { width: 1px; height: 24px; background: #dde2ea; flex-shrink: 0; }
-        .filter-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .filter-group-label { font-size: 13px; font-weight: 600; color: #1a3a5c; white-space: nowrap; }
-        .filter-checkbox-wrap { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
-        .filter-checkbox-wrap input { width: 16px; height: 16px; accent-color: #2d6a9f; cursor: pointer; }
-        .filter-checkbox-wrap span { font-size: 13px; font-weight: 600; color: #1a3a5c; }
-        .filter-active-badge { display: none; font-size: 11px; font-weight: bold; background: #2d6a9f; color: white; border-radius: 10px; padding: 2px 10px; }
-        .filter-active-badge.show { display: inline-block; }
-        .btn-filter-reset { display: none; font-size: 12px; font-weight: 600; color: #888; background: none; border: 1.5px solid #dde2ea; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
-        .btn-filter-reset.show { display: inline-block; }
-        .btn-filter-reset:hover { background: #f0f2f5; color: #555; }
         .timeline-table { border-collapse: collapse; min-width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .tl-label-col { width: 160px; min-width: 160px; }
-        .tl-time-col  { width: 80px; min-width: 80px; }
-        .timeline-table thead th { background: #f0f2f5; padding: 10px 0; font-size: 12px; font-weight: bold; color: #666; text-align: center; border-right: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
-        .timeline-table thead th.tl-label-col { text-align: left; padding-left: 12px; }
+        .tl-label-col { width: 140px; min-width: 140px; }
+        .tl-time-col  { width: 72px;  min-width: 72px; }
+        .timeline-table thead th { background: #f0f2f5; padding: 8px 0; font-size: 11px; font-weight: bold; color: #666; text-align: center; border-right: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
+        .timeline-table thead th.tl-label-col { text-align: left; padding-left: 10px; }
         .tl-border-hour { border-right: 2px solid #bbb !important; }
         .tl-border-half { border-right: 1px solid #ddd !important; }
         .timeline-table tbody tr { border-bottom: 1px solid #f0f2f5; }
         .timeline-table tbody tr:last-child { border-bottom: none; }
-        .tl-label { padding: 0 10px; font-size: 13px; font-weight: bold; color: #333; border-right: 2px solid #e0e0e0; white-space: nowrap; height: 44px; vertical-align: middle; }
-        .tl-cell { position: relative; height: 44px; padding: 0; vertical-align: middle; }
-        .tl-block { position: absolute; top: 6px; bottom: 6px; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: bold; color: white; white-space: nowrap; overflow: hidden; z-index: 1; }
+        .tl-label { padding: 0 8px; font-size: 12px; font-weight: bold; color: #333; border-right: 2px solid #e0e0e0; white-space: nowrap; height: 38px; vertical-align: middle; }
+        .tl-cell { position: relative; height: 38px; padding: 0; vertical-align: middle; }
+        .tl-block { position: absolute; top: 5px; bottom: 5px; border-radius: 4px; display: flex; align-items: center; padding: 0 6px; font-size: 10px; font-weight: bold; color: white; white-space: nowrap; overflow: hidden; z-index: 1; }
         .tl-block.reserved { background: #FF9800; }
         .tl-block.in_use   { background: #F44336; }
+
+        /* タイムライン階ヘッダー */
+        .tl-floor-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .tl-title { font-size: 14px; font-weight: bold; color: #1a3a5c; }
+        .floor-content { display: none; }
+        .floor-content.active { display: block; }
 
         /* モーダル */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
         .modal-overlay.open { display: flex; }
-        .modal { background: white; border-radius: 16px; padding: 28px; width: 420px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-        .modal-title { font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #1a3a5c; }
-        .form-group { margin-bottom: 16px; }
-        .form-label { display: block; font-size: 13px; font-weight: bold; color: #555; margin-bottom: 6px; }
-        .form-input, .form-select { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; color: #333; background: white; }
+        .modal { background: white; border-radius: 14px; padding: 24px; width: 400px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+        .modal-title { font-size: 16px; font-weight: bold; margin-bottom: 16px; color: #1a3a5c; }
+        .form-group { margin-bottom: 12px; }
+        .form-label { display: block; font-size: 12px; font-weight: bold; color: #555; margin-bottom: 5px; }
+        .form-input, .form-select { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 7px; font-size: 13px; color: #333; background: white; }
         .form-input:focus, .form-select:focus { outline: none; border-color: #1a3a5c; }
         .form-input[readonly] { background: #f0f2f5; color: #888; }
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .pw-hint { font-size: 11px; color: #f57c00; margin-top: 4px; }
-        .modal-buttons { display: flex; gap: 12px; margin-top: 24px; }
-        .btn-confirm { flex: 1; padding: 12px; background: #1a3a5c; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .pw-hint { font-size: 10px; color: #f57c00; margin-top: 3px; }
+        .modal-buttons { display: flex; gap: 10px; margin-top: 18px; }
+        .btn-confirm { flex: 1; padding: 10px; background: #1a3a5c; color: white; border: none; border-radius: 7px; font-size: 13px; font-weight: bold; cursor: pointer; }
         .btn-confirm:hover { background: #2d5a8e; }
-        .btn-cancel-modal { flex: 1; padding: 12px; background: white; color: #333; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .btn-cancel-modal { flex: 1; padding: 10px; background: white; color: #333; border: 1px solid #ddd; border-radius: 7px; font-size: 13px; font-weight: bold; cursor: pointer; }
         .btn-cancel-modal:hover { background: #f0f2f5; }
 
         /* 確認ダイアログ */
         .confirm-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; }
         .confirm-overlay.open { display: flex; }
-        .confirm-dialog { background: white; border-radius: 16px; padding: 28px; width: 380px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); text-align: center; }
-        .confirm-icon  { font-size: 40px; margin-bottom: 12px; }
-        .confirm-title { font-size: 16px; font-weight: bold; margin-bottom: 8px; color: #1a3a5c; }
-        .confirm-text  { font-size: 14px; color: #666; margin-bottom: 16px; }
-        .confirm-buttons { display: flex; gap: 12px; margin-top: 16px; }
-        .btn-danger { flex: 1; padding: 12px; background: #F44336; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .confirm-dialog { background: white; border-radius: 14px; padding: 24px; width: 360px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); text-align: center; }
+        .confirm-icon  { font-size: 36px; margin-bottom: 10px; }
+        .confirm-title { font-size: 15px; font-weight: bold; margin-bottom: 6px; color: #1a3a5c; }
+        .confirm-text  { font-size: 13px; color: #666; margin-bottom: 14px; }
+        .confirm-buttons { display: flex; gap: 10px; margin-top: 14px; }
+        .btn-danger { flex: 1; padding: 10px; background: #F44336; color: white; border: none; border-radius: 7px; font-size: 13px; font-weight: bold; cursor: pointer; }
         .btn-danger:hover { background: #d32f2f; }
-        .btn-back { flex: 1; padding: 12px; background: white; color: #333; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .btn-back { flex: 1; padding: 10px; background: white; color: #333; border: 1px solid #ddd; border-radius: 7px; font-size: 13px; font-weight: bold; cursor: pointer; }
         .btn-back:hover { background: #f0f2f5; }
 
-        .loading { text-align: center; padding: 60px; color: #888; font-size: 16px; }
-        .error-message { background: #ffebee; border: 1px solid #F44336; border-radius: 8px; padding: 16px; color: #c62828; margin-bottom: 20px; }
-        .toast { position: fixed; bottom: 24px; right: 24px; background: #1a3a5c; color: white; padding: 14px 20px; border-radius: 10px; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 3000; display: none; animation: slideIn 0.3s ease; }
+        .loading { text-align: center; padding: 40px; color: #888; font-size: 14px; }
+        .error-message { background: #ffebee; border: 1px solid #F44336; border-radius: 8px; padding: 12px; color: #c62828; margin-bottom: 12px; font-size: 13px; }
+        .toast { position: fixed; bottom: 20px; right: 20px; background: #1a3a5c; color: white; padding: 12px 18px; border-radius: 9px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 3000; display: none; animation: slideIn 0.3s ease; }
         @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-        /* タイムライン階切替 */
-        .tl-floor-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-        .tl-title { font-size: 16px; font-weight: bold; color: #1a3a5c; }
-        .floor-content { display: none; }
-        .floor-content.active { display: block; }
     </style>
 </head>
 <body>
@@ -346,7 +326,7 @@
     </div>
 </div>
 
-<!-- 集計バー -->
+<!-- 集計バー＋凡例（1行） -->
 <div class="summary-bar">
     <div class="summary-item">
         <span class="summary-count count-total" id="countTotal">-</span>
@@ -370,7 +350,7 @@
         <div class="legend-item"><div class="legend-dot" style="background:#4CAF50"></div>空き</div>
         <div class="legend-item"><div class="legend-dot" style="background:#F44336"></div>使用中</div>
         <div class="legend-item"><div class="legend-dot" style="background:#FF9800"></div>予約済み</div>
-        <div class="legend-item legend-monitor">🖥️ モニター有</div>
+        <div class="legend-item" style="color:#1976D2;">🖥️ モニター有</div>
     </div>
 </div>
 
@@ -388,8 +368,7 @@
         <div id="floorMapArea" style="display:none;">
             <div class="floor-map-header">
                 <div class="floor-map-title">🗺️ フロアマップ —</div>
-                <select class="floor-select" id="mapFloorSelect" onchange="switchMapFloor(this.value)">
-                </select>
+                <select class="floor-select" id="mapFloorSelect" onchange="switchMapFloor(this.value)"></select>
             </div>
             <div id="mapFloorContents"></div>
         </div>
@@ -401,8 +380,7 @@
     <div class="main">
         <div class="tl-floor-header">
             <div class="tl-title">📅 タイムライン（9:00〜18:00）—</div>
-            <select class="floor-select" id="tlFloorSelect" onchange="switchTlFloor(this.value)">
-            </select>
+            <select class="floor-select" id="tlFloorSelect" onchange="switchTlFloor(this.value)"></select>
         </div>
         <div id="tlFloorContents"></div>
     </div>
@@ -463,7 +441,7 @@
             <div class="pw-hint">⚠️ 予約キャンセル時に必要です。忘れないようにメモしてください。</div>
         </div>
         <div class="modal-buttons">
-            <button class="btn-confirm" onclick="submitReservation()">予約確定</button>
+            <button class="btn-confirm"      onclick="submitReservation()">予約確定</button>
             <button class="btn-cancel-modal" onclick="closeModal()">閉じる</button>
         </div>
     </div>
@@ -496,66 +474,49 @@
 const API_BASE     = '';
 const TL_START_MIN = 9 * 60;
 const TL_END_MIN   = 18 * 60;
-const TL_UNIT_MIN  = 15;
-const TL_CELL_PX   = 60;
-const TL_SLOTS     = (TL_END_MIN - TL_START_MIN) / TL_UNIT_MIN;
+const TL_UNIT_MIN  = 30;
+const TL_CELL_PX   = 72;
+const TL_SLOTS     = (TL_END_MIN - TL_START_MIN) / TL_UNIT_MIN; // 18スロット
 
 const STATUS_LABEL = {
-    available : '空き',
-    empty     : '空き',
-    in_use    : '使用中',
-    reserved  : '予約済み',
-    completed : '完了',
-    expired   : '期限切れ',
-    cancelled : 'キャンセル',
+    available: '空き', empty: '空き', in_use: '使用中',
+    reserved: '予約済み', completed: '完了', expired: '期限切れ', cancelled: 'キャンセル',
 };
 const STATUS_CLASS = {
-    available : 'available',
-    empty     : 'available',
-    in_use    : 'in_use',
-    reserved  : 'reserved',
-    completed : 'available',
-    expired   : 'available',
-    cancelled : 'available',
+    available: 'available', empty: 'available', in_use: 'in_use',
+    reserved: 'reserved', completed: 'available', expired: 'available', cancelled: 'available',
 };
 
-// フロアごとの固定レイアウト定義
-// seat_name → グリッド配置クラス のマッピング
-function getLayoutMap(floorPrefix, confPrefix) {
+// フロアごとレイアウトマップ生成
+function getLayoutMap(deskPrefix, confPrefix) {
     return {
-        // 会議室左列
         [`${confPrefix}01`]: 'pos-conf-left-1',
         [`${confPrefix}02`]: 'pos-conf-left-2',
         [`${confPrefix}03`]: 'pos-conf-left-3',
-        // 会議室右列
         [`${confPrefix}04`]: 'pos-conf-right-1',
         [`${confPrefix}05`]: 'pos-conf-right-2',
         [`${confPrefix}06`]: 'pos-conf-right-3',
-        // 打合せ机上段
-        [`${floorPrefix}-1`]:  'pos-desk-top-1',
-        [`${floorPrefix}-2`]:  'pos-desk-top-2',
-        [`${floorPrefix}-3`]:  'pos-desk-top-3',
-        [`${floorPrefix}-4`]:  'pos-desk-top-4',
-        [`${floorPrefix}-5`]:  'pos-desk-top-5',
-        [`${floorPrefix}-6`]:  'pos-desk-top-6',
-        // 打合せ机下段
-        [`${floorPrefix}-7`]:  'pos-desk-bot-1',
-        [`${floorPrefix}-8`]:  'pos-desk-bot-2',
-        [`${floorPrefix}-9`]:  'pos-desk-bot-3',
-        [`${floorPrefix}-10`]: 'pos-desk-bot-4',
-        [`${floorPrefix}-11`]: 'pos-desk-bot-5',
-        [`${floorPrefix}-12`]: 'pos-desk-bot-6',
+        [`${deskPrefix}-1`]:  'pos-desk-top-1',
+        [`${deskPrefix}-2`]:  'pos-desk-top-2',
+        [`${deskPrefix}-3`]:  'pos-desk-top-3',
+        [`${deskPrefix}-4`]:  'pos-desk-top-4',
+        [`${deskPrefix}-5`]:  'pos-desk-top-5',
+        [`${deskPrefix}-6`]:  'pos-desk-top-6',
+        [`${deskPrefix}-7`]:  'pos-desk-bot-1',
+        [`${deskPrefix}-8`]:  'pos-desk-bot-2',
+        [`${deskPrefix}-9`]:  'pos-desk-bot-3',
+        [`${deskPrefix}-10`]: 'pos-desk-bot-4',
+        [`${deskPrefix}-11`]: 'pos-desk-bot-5',
+        [`${deskPrefix}-12`]: 'pos-desk-bot-6',
     };
 }
 
-// フロアIDごとのプレフィックス設定
 const FLOOR_LAYOUT = {
     2: { deskPrefix: '4-1', confPrefix: '会議室04' },
     3: { deskPrefix: '5-1', confPrefix: '会議室05' },
     4: { deskPrefix: '6-1', confPrefix: '会議室06' },
 };
 
-// フリースペースの配置（順番に左2・右3）
 const FREE_LEFT_POS  = ['pos-free-left-1', 'pos-free-left-2'];
 const FREE_RIGHT_POS = ['pos-free-right-1', 'pos-free-right-2', 'pos-free-right-3'];
 
@@ -565,17 +526,12 @@ const FREE_RIGHT_POS = ['pos-free-right-1', 'pos-free-right-2', 'pos-free-right-
 let seatsData        = [];
 let reservationsData = [];
 let floorsData       = [];
-let currentMapFloor  = null;
-let currentTlFloor   = null;
 
 function nowMinutes() {
     const d = new Date();
     return d.getHours() * 60 + d.getMinutes();
 }
 
-// ============================================================
-// 表示用ステータス
-// ============================================================
 function getDisplayStatus(seat) {
     const dbStatus = seat.status || 'empty';
     if (dbStatus === 'in_use') return 'in_use';
@@ -605,7 +561,7 @@ function getUpcomingReservation(seatId) {
 }
 
 // ============================================================
-// タブ切替
+// タブ・階切替
 // ============================================================
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
@@ -615,18 +571,13 @@ function switchTab(tab) {
     document.getElementById('tab-timeline').classList.toggle('active', tab === 'timeline');
 }
 
-// ============================================================
-// 階切替（ドロップダウン）
-// ============================================================
 function switchMapFloor(floorId) {
-    currentMapFloor = parseInt(floorId);
     document.querySelectorAll('#mapFloorContents .floor-content').forEach(el => {
         el.classList.toggle('active', el.dataset.floorId === String(floorId));
     });
 }
 
 function switchTlFloor(floorId) {
-    currentTlFloor = parseInt(floorId);
     document.querySelectorAll('#tlFloorContents .floor-content').forEach(el => {
         el.classList.toggle('active', el.dataset.floorId === String(floorId));
     });
@@ -650,62 +601,49 @@ function updateSummary() {
 }
 
 // ============================================================
-// ドロップダウンとフロアコンテンツを動的生成
+// UI構築
 // ============================================================
 function buildFloorUI() {
-    // フロアマップ用
     const mapSelect   = document.getElementById('mapFloorSelect');
     const mapContents = document.getElementById('mapFloorContents');
-    mapSelect.innerHTML   = '';
-    mapContents.innerHTML = '';
+    const tlSelect    = document.getElementById('tlFloorSelect');
+    const tlContents  = document.getElementById('tlFloorContents');
 
-    // タイムライン用
-    const tlSelect   = document.getElementById('tlFloorSelect');
-    const tlContents = document.getElementById('tlFloorContents');
-    tlSelect.innerHTML   = '';
-    tlContents.innerHTML = '';
+    mapSelect.innerHTML = tlSelect.innerHTML = '';
+    mapContents.innerHTML = tlContents.innerHTML = '';
 
-    // floor_id=1 は除外
     const targetFloors = floorsData.filter(f => f.floor_id !== 1);
 
     targetFloors.forEach((floor, idx) => {
-        // マップ用セレクト
-        const mapOpt = document.createElement('option');
-        mapOpt.value       = floor.floor_id;
-        mapOpt.textContent = floor.floor_name;
-        mapSelect.appendChild(mapOpt);
-
-        // タイムライン用セレクト
-        const tlOpt = document.createElement('option');
-        tlOpt.value       = floor.floor_id;
-        tlOpt.textContent = floor.floor_name;
-        tlSelect.appendChild(tlOpt);
+        // セレクトオプション
+        [mapSelect, tlSelect].forEach(sel => {
+            const opt = document.createElement('option');
+            opt.value = floor.floor_id;
+            opt.textContent = floor.floor_name;
+            sel.appendChild(opt);
+        });
 
         // マップコンテンツ
         const mapDiv = document.createElement('div');
         mapDiv.className       = 'floor-content' + (idx === 0 ? ' active' : '');
         mapDiv.dataset.floorId = floor.floor_id;
-        mapDiv.id              = `map-floor-${floor.floor_id}`;
-        mapDiv.innerHTML       = `<div class="floor-map-container"><div class="floor-grid" id="floorGrid-${floor.floor_id}"></div></div>`;
+        mapDiv.innerHTML = `
+            <div class="floor-map-container">
+                <div class="floor-grid" id="floorGrid-${floor.floor_id}"></div>
+            </div>`;
         mapContents.appendChild(mapDiv);
 
         // タイムラインコンテンツ
         const tlDiv = document.createElement('div');
         tlDiv.className       = 'floor-content' + (idx === 0 ? ' active' : '');
         tlDiv.dataset.floorId = floor.floor_id;
-        tlDiv.id              = `tl-floor-${floor.floor_id}`;
         tlDiv.innerHTML       = `<div class="timeline-wrap" id="timelineWrap-${floor.floor_id}"></div>`;
         tlContents.appendChild(tlDiv);
-
-        if (idx === 0) {
-            currentMapFloor = floor.floor_id;
-            currentTlFloor  = floor.floor_id;
-        }
     });
 }
 
 // ============================================================
-// 席カードHTML生成
+// 席カードHTML
 // ============================================================
 function createSeatCardHTML(seat, posClass) {
     const displayStatus = getDisplayStatus(seat);
@@ -724,10 +662,8 @@ function createSeatCardHTML(seat, posClass) {
 
     const capacityHtml = seat.capacity
         ? `<div class="seat-card-capacity">${seat.capacity}<span>名</span></div>` : '';
-
     const monitorHtml = seat.has_monitor
         ? `<div class="monitor-badge">🖥️ モニター有</div>` : '';
-
     const cancelBtnHtml = (upcoming && upcoming.reservation_id)
         ? `<button class="cancel-btn"
                onclick="openConfirm(${upcoming.reservation_id},
@@ -753,52 +689,37 @@ function createSeatCardHTML(seat, posClass) {
                 予約する
             </button>
             ${cancelBtnHtml}
-        </div>
-    `;
+        </div>`;
 }
 
 // ============================================================
-// フロアマップ描画（固定レイアウト）
+// フロアマップ描画
 // ============================================================
 function renderSeats() {
     const targetFloors = floorsData.filter(f => f.floor_id !== 1);
-
     targetFloors.forEach(floor => {
         const grid = document.getElementById(`floorGrid-${floor.floor_id}`);
         if (!grid) return;
 
         const floorSeats = seatsData.filter(s => s.floor_id === floor.floor_id);
         const layout     = FLOOR_LAYOUT[floor.floor_id];
-        if (!layout) { grid.innerHTML = '<div style="color:#888;padding:20px;">レイアウト未定義</div>'; return; }
+        if (!layout) { grid.innerHTML = '<div style="color:#888;padding:16px;font-size:13px;">レイアウト未定義</div>'; return; }
 
         const layoutMap = getLayoutMap(layout.deskPrefix, layout.confPrefix);
-
-        // 種別ごとに分類
         const confSeats = floorSeats.filter(s => s.seat_type === 'conf');
         const deskSeats = floorSeats.filter(s => s.seat_type === 'desk');
         const freeSeats = floorSeats.filter(s => s.seat_type === 'free');
 
         let html = '';
-
-        // 会議室・打合せ机
         [...confSeats, ...deskSeats].forEach(seat => {
             const posClass = layoutMap[seat.seat_name] || '';
-            if (posClass) {
-                html += createSeatCardHTML(seat, posClass);
-            }
+            if (posClass) html += createSeatCardHTML(seat, posClass);
         });
-
-        // フリースペース（左2席・右3席）
         freeSeats.forEach((seat, idx) => {
-            let posClass = '';
-            if (idx < 2) {
-                posClass = FREE_LEFT_POS[idx] || '';
-            } else {
-                posClass = FREE_RIGHT_POS[idx - 2] || '';
-            }
-            if (posClass) {
-                html += createSeatCardHTML(seat, posClass);
-            }
+            const posClass = idx < 2
+                ? (FREE_LEFT_POS[idx]      || '')
+                : (FREE_RIGHT_POS[idx - 2] || '');
+            if (posClass) html += createSeatCardHTML(seat, posClass);
         });
 
         grid.innerHTML = html;
@@ -810,18 +731,17 @@ function renderSeats() {
 }
 
 // ============================================================
-// タイムライン描画（30分単位）
+// タイムライン描画
 // ============================================================
 function renderTimelines() {
     const targetFloors = floorsData.filter(f => f.floor_id !== 1);
-
     targetFloors.forEach(floor => {
         const wrap = document.getElementById(`timelineWrap-${floor.floor_id}`);
         if (!wrap) return;
 
         const floorSeats = seatsData.filter(s => s.floor_id === floor.floor_id);
         if (floorSeats.length === 0) {
-            wrap.innerHTML = '<div style="color:#888;padding:20px;">席データがありません</div>';
+            wrap.innerHTML = '<div style="color:#888;padding:16px;">席データがありません</div>';
             return;
         }
 
@@ -830,15 +750,14 @@ function renderTimelines() {
             const absMin      = TL_START_MIN + i * TL_UNIT_MIN;
             const isHour      = absMin % 60 === 0;
             const borderClass = isHour ? 'tl-border-hour' : 'tl-border-half';
-            const label       = `${Math.floor(absMin / 60)}:${String(absMin % 60).padStart(2,'0')}`;
+            const label       = `${Math.floor(absMin / 60)}:${String(absMin % 60).padStart(2, '0')}`;
             headerCells += `<th class="tl-time-col ${borderClass}">${label}</th>`;
         }
 
         const rows = floorSeats.map(seat => {
             const monitorIcon      = seat.has_monitor ? ' 🖥️' : '';
             const seatReservations = reservationsData.filter(r =>
-                r.seat_id === seat.seat_id &&
-                ['reserved', 'in_use'].includes(r.status)
+                r.seat_id === seat.seat_id && ['reserved', 'in_use'].includes(r.status)
             );
 
             let cells       = `<td class="tl-label">${seat.seat_name}${monitorIcon}</td>`;
@@ -850,10 +769,7 @@ function renderTimelines() {
                 const isHour    = slotStart % 60 === 0;
                 const borderCls = isHour ? 'tl-border-hour' : 'tl-border-half';
 
-                if (usedSlots.has(i)) {
-                    cells += `<td class="tl-cell ${borderCls}"></td>`;
-                    continue;
-                }
+                if (usedSlots.has(i)) { cells += `<td class="tl-cell ${borderCls}"></td>`; continue; }
 
                 const reservation = seatReservations.find(r => {
                     const rStart = isoToAbsMin(r.start_datetime);
@@ -873,68 +789,25 @@ function renderTimelines() {
 
                     const blockClass = reservation.status === 'in_use' ? 'in_use' : 'reserved';
                     const timeLabel  = `${formatTime(reservation.start_datetime)}〜${formatTime(reservation.end_datetime)}`;
-
                     cells += `
                         <td class="tl-cell ${borderCls}" style="position:relative;overflow:visible;">
                             <div class="tl-block ${blockClass}"
                                  style="left:${offsetPx}px;width:${blockWidth}px;"
-                                 title="${timeLabel}">
-                                ${timeLabel}
-                            </div>
+                                 title="${timeLabel}">${timeLabel}</div>
                         </td>`;
                 } else {
                     cells += `<td class="tl-cell ${borderCls}"></td>`;
                 }
             }
-            return `<tr data-seat-type="${seat.seat_type}" data-capacity="${seat.capacity || ''}" data-monitor="${seat.has_monitor}">${cells}</tr>`;
+            return `<tr>${cells}</tr>`;
         }).join('');
 
         wrap.innerHTML = `
-            ${filterHtml}
             <table class="timeline-table">
                 <thead><tr>${headerCells}</tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
-
-        const typeFilters = wrap.querySelectorAll('.timeline-type-filter');
-        typeFilters.forEach(input => { input.checked = filter.types.includes(input.value); });
-        wrap.querySelector('.timeline-monitor-filter').checked = filter.monitor;
-        wrap.querySelectorAll('.timeline-cap-filter').forEach(input => { input.checked = filter.caps.includes(Number(input.value)); });
-        typeFilters.forEach(input => input.addEventListener('change', () => applyTimelineFilter(floor.floor_id)));
-        wrap.querySelector('.timeline-monitor-filter').addEventListener('change', () => applyTimelineFilter(floor.floor_id));
-        wrap.querySelectorAll('.timeline-cap-filter').forEach(input => input.addEventListener('change', () => applyTimelineFilter(floor.floor_id)));
-        wrap.querySelector('.btn-filter-reset').addEventListener('click', () => resetTimelineFilter(floor.floor_id));
-        applyTimelineFilter(floor.floor_id);
     });
-}
-
-function applyTimelineFilter(floorId) {
-    const wrap = document.getElementById(`timelineWrap-${floorId}`);
-    if (!wrap) return;
-
-    const types = [...wrap.querySelectorAll('.timeline-type-filter:checked')].map(input => input.value);
-    const monitor = wrap.querySelector('.timeline-monitor-filter').checked;
-    const caps = [...wrap.querySelectorAll('.timeline-cap-filter:checked')].map(input => Number(input.value));
-    timelineFilters[floorId] = { types, monitor, caps };
-    const isActive = types.length > 0 || monitor || caps.length > 0;
-
-    wrap.querySelector('.filter-active-badge').classList.toggle('show', isActive);
-    wrap.querySelector('.btn-filter-reset').classList.toggle('show', isActive);
-    wrap.querySelectorAll('tbody tr').forEach(row => {
-        const passType = types.length === 0 || types.includes(row.dataset.seatType);
-        const passMonitor = !monitor || row.dataset.seatType !== 'desk' || row.dataset.monitor === 'true';
-        const capacity = row.dataset.capacity ? Number(row.dataset.capacity) : null;
-        const passCapacity = caps.length === 0 || row.dataset.seatType !== 'desk' || (capacity !== null && caps.includes(capacity));
-        row.style.display = passType && passMonitor && passCapacity ? '' : 'none';
-    });
-}
-
-function resetTimelineFilter(floorId) {
-    timelineFilters[floorId] = { types: [], monitor: false, caps: [] };
-    const wrap = document.getElementById(`timelineWrap-${floorId}`);
-    if (!wrap) return;
-    wrap.querySelectorAll('input').forEach(input => { input.checked = false; });
-    applyTimelineFilter(floorId);
 }
 
 // ============================================================
@@ -948,14 +821,8 @@ function openModal(seatId, seatName) {
     document.getElementById('formPassword').value = '';
     document.getElementById('modalOverlay').classList.add('open');
 }
-
-function closeModal() {
-    document.getElementById('modalOverlay').classList.remove('open');
-}
-
-document.getElementById('modalOverlay').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-});
+function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+document.getElementById('modalOverlay').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 
 async function submitReservation() {
     const seatId    = document.getElementById('formSeatId').value;
@@ -965,9 +832,9 @@ async function submitReservation() {
     const startTime = document.getElementById('formStartTime').value;
     const endTime   = document.getElementById('formEndTime').value;
 
-    if (!userName)                 { showToast('⚠️ 予約者名を入力してください');               return; }
-    if (!email)                    { showToast('⚠️ メールアドレスを入力してください');           return; }
-    if (!/^\d{4}$/.test(password)) { showToast('⚠️ パスワードは4桁の数字で入力してください');   return; }
+    if (!userName)                 { showToast('⚠️ 予約者名を入力してください');             return; }
+    if (!email)                    { showToast('⚠️ メールアドレスを入力してください');         return; }
+    if (!/^\d{4}$/.test(password)) { showToast('⚠️ パスワードは4桁の数字で入力してください'); return; }
 
     const today = new Date().toISOString().split('T')[0];
     const payload = {
@@ -981,20 +848,14 @@ async function submitReservation() {
 
     try {
         const res = await fetch(`${API_BASE}/api/reservations`, {
-            method  : 'POST',
-            headers : { 'Content-Type': 'application/json' },
-            body    : JSON.stringify(payload),
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
         });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || `エラー: ${res.status}`);
-        }
+        if (!res.ok) { const err = await res.json(); throw new Error(err.detail || `エラー: ${res.status}`); }
         closeModal();
         showToast('✅ 予約が完了しました');
         await refreshData();
-    } catch (error) {
-        showToast(`❌ 予約に失敗しました: ${error.message}`);
-    }
+    } catch (error) { showToast(`❌ 予約に失敗しました: ${error.message}`); }
 }
 
 // ============================================================
@@ -1005,12 +866,10 @@ let pendingCancelId = null;
 function openConfirm(reservationId, seatName, timeRange) {
     if (!reservationId) { showToast('❌ 予約情報が取得できません'); return; }
     pendingCancelId = reservationId;
-    document.getElementById('confirmText').textContent =
-        `「${seatName}」の予約（${timeRange}）をキャンセルします。`;
+    document.getElementById('confirmText').textContent = `「${seatName}」の予約（${timeRange}）をキャンセルします。`;
     document.getElementById('cancelPassword').value = '';
     document.getElementById('confirmOverlay').classList.add('open');
 }
-
 function closeConfirm() {
     pendingCancelId = null;
     document.getElementById('cancelPassword').value = '';
@@ -1026,23 +885,14 @@ async function executeCancel() {
     closeConfirm();
 
     try {
-        const res = await fetch(
-            `${API_BASE}/api/reservations/cancel/${targetId}`,
-            {
-                method  : 'POST',
-                headers : { 'Content-Type': 'application/json' },
-                body    : JSON.stringify({ password }),
-            }
-        );
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || `エラー: ${res.status}`);
-        }
+        const res = await fetch(`${API_BASE}/api/reservations/cancel/${targetId}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }),
+        });
+        if (!res.ok) { const err = await res.json(); throw new Error(err.detail || `エラー: ${res.status}`); }
         showToast('✅ 予約をキャンセルしました');
         await refreshData();
-    } catch (error) {
-        showToast(`❌ ${error.message}`);
-    }
+    } catch (error) { showToast(`❌ ${error.message}`); }
 }
 
 // ============================================================
@@ -1053,42 +903,31 @@ async function cleanupPastReservations() {
         const res  = await fetch(`${API_BASE}/api/reservations/cleanup`, { method: 'DELETE' });
         const data = await res.json();
         console.log(`[Cleanup] ${data.message}`);
-    } catch (e) {
-        console.warn('[Cleanup] 過去予約削除失敗:', e);
-    }
+    } catch (e) { console.warn('[Cleanup] 失敗:', e); }
 }
 
 async function loadFloors() {
     try {
         const res = await fetch(`${API_BASE}/api/floors`);
-        if (!res.ok) throw new Error(`API エラー: ${res.status}`);
+        if (!res.ok) throw new Error(`${res.status}`);
         floorsData = await res.json();
-    } catch (e) {
-        console.warn('[API] フロアデータ取得失敗:', e);
-        floorsData = [];
-    }
+    } catch (e) { console.warn('[API] フロア取得失敗:', e); floorsData = []; }
 }
 
 async function loadSeats() {
     try {
         const res = await fetch(`${API_BASE}/api/seats`);
-        if (!res.ok) throw new Error(`API エラー: ${res.status}`);
+        if (!res.ok) throw new Error(`${res.status}`);
         seatsData = await res.json();
-    } catch (e) {
-        console.error('[API] 席データ取得失敗:', e);
-        showError(`データの取得に失敗しました: ${e.message}`);
-    }
+    } catch (e) { console.error('[API] 席取得失敗:', e); showError(`データ取得失敗: ${e.message}`); }
 }
 
 async function loadReservations() {
     try {
         const res = await fetch(`${API_BASE}/api/reservations`);
-        if (!res.ok) throw new Error(`API エラー: ${res.status}`);
+        if (!res.ok) throw new Error(`${res.status}`);
         reservationsData = await res.json();
-    } catch (e) {
-        console.error('[API] 予約データ取得失敗:', e);
-        reservationsData = [];
-    }
+    } catch (e) { console.error('[API] 予約取得失敗:', e); reservationsData = []; }
 }
 
 async function refreshData() {
@@ -1104,20 +943,13 @@ async function refreshData() {
 async function connectSignalR() {
     const dot  = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
-    dot.className    = 'status-dot connecting';
-    text.textContent = '接続中...';
+    dot.className = 'status-dot connecting'; text.textContent = '接続中...';
 
     try {
         const r    = await fetch(`${API_BASE}/api/negotiate/negotiate`, { method: 'POST' });
         const data = await r.json();
-        if (data.disabled) {
-            dot.className    = 'status-dot disconnected';
-            text.textContent = 'リアルタイム更新無効';
-            return;
-        }
-    } catch (e) {
-        console.warn('[SignalR] ネゴシエーション失敗:', e);
-    }
+        if (data.disabled) { dot.className = 'status-dot disconnected'; text.textContent = 'リアルタイム更新無効'; return; }
+    } catch (e) { console.warn('[SignalR] ネゴシエーション失敗:', e); }
 
     const connection = new signalR.HubConnectionBuilder()
         .withUrl(`${API_BASE}/api/negotiate`)
@@ -1132,11 +964,9 @@ async function connectSignalR() {
 
     try {
         await connection.start();
-        dot.className    = 'status-dot connected';
-        text.textContent = 'リアルタイム接続中';
+        dot.className = 'status-dot connected'; text.textContent = 'リアルタイム接続中';
     } catch (e) {
-        dot.className    = 'status-dot disconnected';
-        text.textContent = 'SignalR 接続失敗';
+        dot.className = 'status-dot disconnected'; text.textContent = 'SignalR 接続失敗';
         setTimeout(connectSignalR, 10000);
     }
 }
@@ -1144,17 +974,12 @@ async function connectSignalR() {
 // ============================================================
 // ユーティリティ
 // ============================================================
-function showError(message) {
-    const el = document.getElementById('errorMessage');
-    el.textContent   = message;
-    el.style.display = 'block';
-}
+function showError(msg) { const el = document.getElementById('errorMessage'); el.textContent = msg; el.style.display = 'block'; }
 
 let toastTimer = null;
-function showToast(message) {
+function showToast(msg) {
     const el = document.getElementById('toast');
-    el.textContent   = message;
-    el.style.display = 'block';
+    el.textContent = msg; el.style.display = 'block';
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
@@ -1164,15 +989,12 @@ function formatTime(iso) {
     const d = new Date(iso);
     return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
-
 function isoToAbsMin(iso) {
     if (!iso) return 0;
     const d = new Date(iso);
     return d.getHours() * 60 + d.getMinutes();
 }
-
 function timeToMinutesFromISO(iso) { return isoToAbsMin(iso); }
-
 function toHHMM(str) {
     const [h, m] = str.split(':');
     return `${h.padStart(2, '0')}:${(m || '00').padStart(2, '0')}`;
@@ -1186,11 +1008,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadFloors();
     await loadSeats();
     await loadReservations();
-
     buildFloorUI();
     renderSeats();
     renderTimelines();
-
     setInterval(async () => { await refreshData(); }, 60 * 1000);
     await connectSignalR();
 });
