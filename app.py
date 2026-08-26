@@ -85,7 +85,7 @@ def open_connection() -> pyodbc.Connection:
 app = FastAPI(
     title="Akichance Reservation / Seat Management API",
     description="Reservation and seat management API for Akichance. (Azure SQL)",
-    version="3.3.0",
+    version="3.4.0",
 )
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ class SeatCreate(BaseModel):
     """座席作成リクエストモデル"""
     floor_id: int = Field(..., description="所属フロアID")
     seat_name: str = Field(..., description="座席名（表示用）")
-    status: str = Field("available", description="座席ステータス")
+    status: str = Field("empty", description="座席ステータス")
     is_active: bool = Field(True, description="予約受付フラグ")
     seat_type: str = Field("desk", description="座席種別")
     capacity: Optional[int] = Field(None, description="収容人数")
@@ -149,6 +149,8 @@ class SeatUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 # Pydantic モデル定義（予約）
 # ---------------------------------------------------------------------------
+# reservations テーブルの status CHECK 制約:
+#   reserved / in_use / cancelled / expired / completed
 
 class ReservationRead(BaseModel):
     """reservations テーブルの全カラムに対応したレスポンスモデル"""
@@ -173,7 +175,7 @@ class ReservationCreate(BaseModel):
     seat_id: int = Field(..., description="予約する座席ID")
     start_datetime: datetime = Field(..., description="予約開始日時")
     end_datetime: datetime = Field(..., description="予約終了日時")
-    status: str = Field("confirmed", description="予約ステータス")
+    status: str = Field("reserved", description="予約ステータス")  # reserved / in_use / cancelled / expired / completed
     outlook_event_id: Optional[str] = Field(None, description="OutlookイベントID")
 
 
@@ -234,12 +236,12 @@ def init_db() -> None:
     try:
         connection = open_connection()
         cursor = connection.cursor()
+        cursor.execute("SELECT COUNT(1) FROM floors")
+        floors_count = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(1) FROM seats")
         seats_count = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(1) FROM reservations")
         res_count = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(1) FROM floors")
-        floors_count = cursor.fetchone()[0]
         print(
             f"[DB] 接続成功 / floors: {floors_count}件 "
             f"/ seats: {seats_count}件 / reservations: {res_count}件"
@@ -300,9 +302,9 @@ async def negotiate():
     )
     signing_input = f"{header}.{payload_b64}"
     raw_sig = hmac.new(
-        access_key.encode("utf-8"),
-        signing_input.encode("utf-8"),
-        hashlib.sha256,
+        key=access_key.encode("utf-8"),
+        msg=signing_input.encode("utf-8"),
+        digestmod=hashlib.sha256,
     ).digest()
     signature = base64.urlsafe_b64encode(raw_sig).rstrip(b"=").decode()
 
@@ -322,12 +324,25 @@ def serve_index() -> FileResponse:
 # 共通バリデーション
 # ---------------------------------------------------------------------------
 
+# reservations.status に許可された値
+VALID_RESERVATION_STATUS = {"reserved", "in_use", "cancelled", "expired", "completed"}
+
+
 def assert_time_range(start: datetime, end: datetime) -> None:
     """終了日時が開始日時より後であることを検証する"""
     if end <= start:
         raise HTTPException(
             status_code=400,
             detail="end_datetime は start_datetime より後にしてください",
+        )
+
+
+def assert_reservation_status(status: str) -> None:
+    """予約ステータスが許可された値かを検証する"""
+    if status not in VALID_RESERVATION_STATUS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"status は {VALID_RESERVATION_STATUS} のいずれかにしてください",
         )
 
 
@@ -343,7 +358,7 @@ def is_overlapping(
         SELECT COUNT(1)
         FROM reservations
         WHERE seat_id = ?
-          AND status != 'cancelled'
+          AND status NOT IN ('cancelled', 'expired', 'completed')
           AND NOT (end_datetime <= ? OR start_datetime >= ?)
     """
     params: list = [seat_id, start, end]
@@ -593,7 +608,7 @@ def available_seats(
           AND seat_id NOT IN (
               SELECT seat_id
               FROM reservations
-              WHERE status != 'cancelled'
+              WHERE status NOT IN ('cancelled', 'expired', 'completed')
                 AND NOT (end_datetime <= ? OR start_datetime >= ?)
           )
     """
@@ -664,9 +679,11 @@ def create_reservation(
 ):
     """新規予約を作成する"""
     assert_time_range(payload.start_datetime, payload.end_datetime)
+    assert_reservation_status(payload.status)
 
     cursor = conn.cursor()
 
+    # 座席の存在確認
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
         (payload.seat_id,),
@@ -674,33 +691,37 @@ def create_reservation(
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Seat not found or inactive")
 
+    # 重複チェック
     if is_overlapping(conn, payload.seat_id, payload.start_datetime, payload.end_datetime):
         raise HTTPException(
             status_code=409,
             detail="指定した時間帯はすでに予約済みです",
         )
 
-    cursor.execute(
-        """
-        INSERT INTO reservations
-            (seat_id, user_id, outlook_event_id,
-             start_datetime, end_datetime, status,
-             created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, GETDATE(), GETDATE());
-        SELECT SCOPE_IDENTITY() AS new_id;
-        """,
-        (
-            payload.seat_id,
-            payload.user_id,
-            payload.outlook_event_id,
-            payload.start_datetime,
-            payload.end_datetime,
-            payload.status,
-        ),
-    )
-    cursor.nextset()
-    new_id = int(cursor.fetchone()[0])
-    conn.commit()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO reservations
+                (seat_id, user_id, outlook_event_id,
+                 start_datetime, end_datetime, status,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, GETDATE(), GETDATE());
+            SELECT SCOPE_IDENTITY() AS new_id;
+            """,
+            (
+                payload.seat_id,
+                payload.user_id,
+                payload.outlook_event_id,
+                payload.start_datetime,
+                payload.end_datetime,
+                payload.status,
+            ),
+        )
+        cursor.nextset()
+        new_id = int(cursor.fetchone()[0])
+        conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     cursor.execute(
         """
@@ -744,6 +765,10 @@ def update_reservation(
 
     assert_time_range(start, end)
 
+    if "status" in update_data:
+        assert_reservation_status(current["status"])
+
+    # 座席の存在確認
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
         (current["seat_id"],),
@@ -751,6 +776,7 @@ def update_reservation(
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Seat not found or inactive")
 
+    # 重複チェック（自分自身を除外）
     if is_overlapping(
         conn,
         current["seat_id"],
@@ -838,6 +864,8 @@ def sync_outlook_reservation(
     assert_time_range(payload.start_datetime, payload.end_datetime)
 
     cursor = conn.cursor()
+
+    # 座席の存在確認
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
         (payload.seat_id,),
@@ -847,10 +875,7 @@ def sync_outlook_reservation(
 
     # outlook_event_id で既存予約を検索（更新 or 新規）
     cursor.execute(
-        """
-        SELECT reservation_id FROM reservations
-        WHERE outlook_event_id = ?
-        """,
+        "SELECT reservation_id FROM reservations WHERE outlook_event_id = ?",
         (payload.outlook_event_id,),
     )
     existing = cursor.fetchone()
@@ -861,12 +886,12 @@ def sync_outlook_reservation(
         cursor.execute(
             """
             UPDATE reservations
-            SET seat_id          = ?,
-                user_id          = ?,
-                start_datetime   = ?,
-                end_datetime     = ?,
-                status           = 'confirmed',
-                updated_at       = GETDATE()
+            SET seat_id        = ?,
+                user_id        = ?,
+                start_datetime = ?,
+                end_datetime   = ?,
+                status         = 'reserved',
+                updated_at     = GETDATE()
             WHERE reservation_id = ?
             """,
             (
@@ -894,7 +919,7 @@ def sync_outlook_reservation(
                 (seat_id, user_id, outlook_event_id,
                  start_datetime, end_datetime, status,
                  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'confirmed', GETDATE(), GETDATE());
+            VALUES (?, ?, ?, ?, ?, 'reserved', GETDATE(), GETDATE());
             SELECT SCOPE_IDENTITY() AS new_id;
             """,
             (
@@ -944,13 +969,15 @@ def cancel_reservation_by_id(
     cursor.execute(
         """
         UPDATE reservations
-        SET status = 'cancelled', updated_at = GETDATE()
+        SET status     = 'cancelled',
+            updated_at = GETDATE()
         WHERE reservation_id = ?
         """,
         (reservation_id,),
     )
     conn.commit()
 
+    # Power Automate へ通知（失敗しても処理続行）
     if POWER_AUTOMATE_CANCEL_URL:
         try:
             http_requests.post(
@@ -994,7 +1021,8 @@ def cancel_reservation_by_outlook(
     cursor.execute(
         """
         UPDATE reservations
-        SET status = 'cancelled', updated_at = GETDATE()
+        SET status     = 'cancelled',
+            updated_at = GETDATE()
         WHERE reservation_id = ?
         """,
         (reservation_id,),

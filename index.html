@@ -823,15 +823,23 @@ const STATUS_LABEL = {
     available : '空き',
     in_use    : '使用中',
     reserved  : '予約済み',
-    empty     : '空き',      // DBの値に合わせて追加
+    empty     : '空き',
+    completed : '完了',
+    expired   : '期限切れ',
+    cancelled : 'キャンセル',
 };
+
 
 const STATUS_CLASS = {
     available : 'available',
     in_use    : 'in_use',
     reserved  : 'reserved',
-    empty     : 'available', // DBの値に合わせて追加
+    empty     : 'available',
+    completed : 'available',
+    expired   : 'available',
+    cancelled : 'available',
 };
+
 
 // 時間スロット（タイムライン用）
 const TIME_SLOTS = [
@@ -1107,12 +1115,12 @@ async function submitReservation() {
     // APIのフィールド名に合わせて修正
     // start_datetime / end_datetime / user_id を使用
     const payload = {
-        user_id        : 1,   // TODO: ログイン機能実装後に変更
-        seat_id        : parseInt(seatId),
-        start_datetime : `${today}T${toHHMM(startTime)}:00`,
-        end_datetime   : `${today}T${toHHMM(endTime)}:00`,
-        status         : 'confirmed',
-    };
+    user_id        : 1,
+    seat_id        : parseInt(seatId),
+    start_datetime : `${today}T${toHHMM(startTime)}:00`,
+    end_datetime   : `${today}T${toHHMM(endTime)}:00`,
+    status         : 'reserved',   // confirmed → reserved
+};
 
     try {
         const res = await fetch(`${API_BASE}/api/reservations`, {
