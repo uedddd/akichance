@@ -196,10 +196,11 @@ class ReservationUpdate(BaseModel):
 class OutlookReservationSync(BaseModel):
     """Power Automate から Outlook 予約データを受信するモデル"""
     outlook_event_id: str = Field(..., description="Outlook イベント ID")
-    user_id: int = Field(..., description="予約者のユーザー ID")
-    seat_id: int = Field(..., description="予約する座席 ID")
-    start_datetime: datetime = Field(..., description="予約開始日時")
-    end_datetime: datetime = Field(..., description="予約終了日時")
+    user_name: str = Field(..., description="予約者名")
+    email: str = Field(..., description="予約者メール")
+    seat_number: str = Field(..., description="席名（例：A-01）")
+    start_time: datetime = Field(..., description="予約開始日時")
+    end_time: datetime = Field(..., description="予約終了日時")
 
 
 class CancelResponse(BaseModel):
@@ -861,19 +862,36 @@ def sync_outlook_reservation(
     conn: pyodbc.Connection = Depends(get_connection),
 ):
     """Power Automate から Outlook 予約データを受信して保存する"""
-    assert_time_range(payload.start_datetime, payload.end_datetime)
-
+    assert_time_range(payload.start_time, payload.end_time)
     cursor = conn.cursor()
 
-    # 座席の存在確認
+    # seat_numberからseat_idを取得
     cursor.execute(
-        "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
-        (payload.seat_id,),
+        "SELECT seat_id FROM seats WHERE seat_name = ? AND is_active = 1",
+        (payload.seat_number,),
     )
-    if cursor.fetchone() is None:
-        raise HTTPException(status_code=404, detail="Seat not found or inactive")
+    seat = cursor.fetchone()
+    if seat is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"席 {payload.seat_number} が見つかりません"
+        )
+    seat_id = seat[0]
 
-    # outlook_event_id で既存予約を検索（更新 or 新規）
+    # emailからuser_idを取得
+    cursor.execute(
+        "SELECT user_id FROM users WHERE email = ?",
+        (payload.email,),
+    )
+    user = cursor.fetchone()
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ユーザー {payload.email} が見つかりません"
+        )
+    user_id = user[0]
+
+    # outlook_event_idで既存予約を検索
     cursor.execute(
         "SELECT reservation_id FROM reservations WHERE outlook_event_id = ?",
         (payload.outlook_event_id,),
@@ -895,24 +913,24 @@ def sync_outlook_reservation(
             WHERE reservation_id = ?
             """,
             (
-                payload.seat_id,
-                payload.user_id,
-                payload.start_datetime,
-                payload.end_datetime,
+                seat_id,
+                user_id,
+                payload.start_time,
+                payload.end_time,
                 reservation_id,
             ),
         )
         conn.commit()
     else:
-        # 重複チェック（新規作成時のみ）
+        # 重複チェック
         if is_overlapping(
-            conn, payload.seat_id, payload.start_datetime, payload.end_datetime
+            conn, seat_id, payload.start_time, payload.end_time
         ):
             raise HTTPException(
                 status_code=409,
                 detail="指定した時間帯はすでに予約済みです",
             )
-
+        # 新規作成
         cursor.execute(
             """
             INSERT INTO reservations
@@ -923,11 +941,11 @@ def sync_outlook_reservation(
             SELECT SCOPE_IDENTITY() AS new_id;
             """,
             (
-                payload.seat_id,
-                payload.user_id,
+                seat_id,
+                user_id,
                 payload.outlook_event_id,
-                payload.start_datetime,
-                payload.end_datetime,
+                payload.start_time,
+                payload.end_time,
             ),
         )
         cursor.nextset()
@@ -997,133 +1015,4 @@ def cancel_reservation_by_id(
         message="予約をキャンセルしました",
     )
 
-
-@app.post("/api/reservations/cancel/outlook", status_code=200)
-def cancel_reservation_by_outlook(
-    payload: dict,
-    conn: pyodbc.Connection = Depends(get_connection),
-):
-    assert_time_range(payload.start_time, payload.end_time)
-    cursor = conn.cursor()
-
-    # seat_number から seat_id を取得
-    cursor.execute(
-        "SELECT seat_id FROM seats WHERE seat_name = ? AND is_active = 1",
-        (payload.seat_number,),
-    )
-    seat = cursor.fetchone()
-    if seat is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"席番号 {payload.seat_number} が見つかりません"
-        )
-    seat_id = seat[0]
-
-    # outlook_event_id で既存予約を検索
-    cursor.execute(
-        "SELECT * FROM reservations WHERE outlook_event_id = ?",
-        (payload.outlook_event_id,),
-    )
-    existing = cursor.fetchone()
-
-    if existing is None:
-        # 新規作成
-        if is_overlapping(conn, seat_id, payload.start_time, payload.end_time):
-            raise HTTPException(
-                status_code=409,
-                detail="この時間帯はすでに予約されています"
-            )
-        cursor.execute(
-            """
-            INSERT INTO reservations
-                (user_name, email, seat_id, start_time, end_time,
-                 status, outlook_event_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
-            SELECT SCOPE_IDENTITY() AS id;
-            """,
-            (
-                payload.user_name,
-                payload.email,
-                seat_id,
-                payload.start_time,
-                payload.end_time,
-                "confirmed",
-                payload.outlook_event_id,
-            ),
-        )
-        cursor.nextset()
-        reservation_id = int(cursor.fetchone()[0])
-        conn.commit()
-
-        return SyncResponse(
-            action="created",
-            reservation_id=reservation_id,
-            outlook_event_id=payload.outlook_event_id,
-        )
-
-    else:
-        # 既存予約を更新
-        existing_dict = row_to_dict(cursor, existing)
-        reservation_id = existing_dict["id"]
-
-        cursor.execute(
-            """
-            UPDATE reservations
-            SET user_name  = ?,
-                email      = ?,
-                seat_id    = ?,
-                start_time = ?,
-                end_time   = ?,
-                status     = ?
-            WHERE outlook_event_id = ?
-            """,
-            (
-                payload.user_name,
-                payload.email,
-                seat_id,
-                payload.start_time,
-                payload.end_time,
-                "confirmed",
-                payload.outlook_event_id,
-            ),
-        )
-        conn.commit()
-
-        return SyncResponse(
-            action="updated",
-            reservation_id=reservation_id,
-            outlook_event_id=payload.outlook_event_id,
-        )
-
-
-@app.delete("/api/reservations/cancel", status_code=200)
-def cancel_reservation(
-    payload: OutlookCancelPayload,
-    conn: pyodbc.Connection = Depends(get_connection),
-):
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT reservation_id FROM reservations WHERE outlook_event_id = ?",
-        (outlook_event_id,),
-    )
-    row = cursor.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="該当する予約が見つかりません")
-
-    reservation_id = row[0]
-    cursor.execute(
-        """
-        UPDATE reservations
-        SET status     = 'cancelled',
-            updated_at = GETDATE()
-        WHERE reservation_id = ?
-        """,
-        (reservation_id,),
-    )
-    conn.commit()
-
-    return {
-        "action"          : "cancelled",
-        "reservation_id"  : reservation_id,
-        "outlook_event_id": outlook_event_id,
-    }
+    
