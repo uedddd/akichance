@@ -107,6 +107,7 @@ class FloorRead(BaseModel):
 # Pydantic モデル定義（座席）
 # ---------------------------------------------------------------------------
 
+
 class SeatRead(BaseModel):
     """seats テーブルの全カラムに対応したレスポンスモデル"""
     seat_id: int
@@ -164,6 +165,7 @@ class ReservationRead(BaseModel):
     notified_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+
 
     class Config:
         orm_mode = True
@@ -258,7 +260,6 @@ def init_db() -> None:
 @app.on_event("startup")
 def startup_event() -> None:
     init_db()
-
 
 # ---------------------------------------------------------------------------
 # SignalR ネゴシエーション
@@ -636,6 +637,7 @@ def list_reservations(
 ):
     """予約一覧を開始日時の昇順で取得する"""
     cursor = conn.cursor()
+
     cursor.execute(
         """
         SELECT reservation_id, seat_id, user_id, outlook_event_id,
@@ -645,6 +647,7 @@ def list_reservations(
         ORDER BY start_datetime
         """
     )
+
     rows = cursor.fetchall()
     return [ReservationRead(**row_to_dict(cursor, row)) for row in rows]
 

@@ -237,8 +237,96 @@
         ======================================== */
         .seats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 16px;
+            grid-template-columns: 100px repeat(10, minmax(56px, 1fr)) 100px;
+            grid-template-rows: repeat(7, minmax(70px, auto));
+            gap: 10px;
+            min-height: 600px;
+            padding: 20px;
+            background: #f4f7fb;
+            border: 2px solid #c8d9ea;
+            border-radius: 12px;
+        }
+
+        .seat-card[data-layout] {
+            min-width: 0;
+            padding: 10px;
+            border: 2px solid #b8cde1;
+            border-left: 5px solid #ccc;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .seat-card[data-layout="meeting-left-1"] { grid-column: 1; grid-row: 1; }
+        .seat-card[data-layout="meeting-left-2"] { grid-column: 1; grid-row: 2; }
+        .seat-card[data-layout="meeting-left-3"] { grid-column: 1; grid-row: 3; }
+        .seat-card[data-layout="meeting-right-4"] { grid-column: 12; grid-row: 1; }
+        .seat-card[data-layout="meeting-right-5"] { grid-column: 12; grid-row: 2; }
+        .seat-card[data-layout="meeting-right-6"] { grid-column: 12; grid-row: 3; }
+
+        .seat-card[data-layout="meeting-top-1"] { grid-column: 3; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-2"] { grid-column: 4 / span 2; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-3"] { grid-column: 6; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-4"] { grid-column: 8; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-5"] { grid-column: 9; grid-row: 1; }
+        .seat-card[data-layout="meeting-top-6"] { grid-column: 10; grid-row: 1; }
+        .seat-card[data-layout="meeting-bottom-7"] { grid-column: 3; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-8"] { grid-column: 4 / span 2; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-9"] { grid-column: 6; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-10"] { grid-column: 7 / span 2; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-11"] { grid-column: 9; grid-row: 5; }
+        .seat-card[data-layout="meeting-bottom-12"] { grid-column: 10; grid-row: 5; }
+
+        .seat-card[data-layout="free-1"] { grid-column: 2; grid-row: 7; }
+        .seat-card[data-layout="free-2"] { grid-column: 3; grid-row: 7; }
+        .seat-card[data-layout="free-3"] { grid-column: 9; grid-row: 7; }
+        .seat-card[data-layout="free-4"] { grid-column: 10; grid-row: 7; }
+        .seat-card[data-layout="free-5"] { grid-column: 11; grid-row: 7; }
+
+        .seat-card[data-layout^="meeting-"] {
+            min-width: 0;
+            padding: 10px;
+            border: 2px solid #b8cde1;
+            border-left-width: 5px;
+        }
+
+        .seat-card[data-layout^="meeting-"] .seat-name,
+        .seat-card[data-layout^="meeting-"] .seat-detail,
+        .seat-card[data-layout^="meeting-"] .seat-monitor {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .seat-card[data-layout^="meeting-"] .reserve-btn,
+        .seat-card[data-layout^="meeting-"] .status-badge {
+            font-size: 11px;
+        }
+
+        .seat-card[data-layout^="meeting-"] .reserve-btn {
+            padding: 6px 4px;
+        }
+
+        .seat-card[data-layout^="free-"] {
+            min-width: 0;
+            padding: 10px;
+        }
+
+        .seat-card[data-layout^="free-"] .seat-name {
+            font-size: 12px;
+        }
+
+        .seat-card[data-layout^="free-"] .reserve-btn {
+            font-size: 10px;
+            padding: 5px 3px;
+        }
+
+        @media (max-width: 900px) {
+            .seats-grid {
+                overflow-x: auto;
+                min-width: 820px;
+            }
         }
 
         /* ========================================
@@ -283,7 +371,7 @@
             border-radius: 10px;
         }
 
-        .seat-zone {
+        .seat-id {
             font-size: 12px;
             color: #888;
             margin-bottom: 10px;
@@ -938,6 +1026,7 @@ function getFloorNumber(floorId) {
  *   seat_name, floor_id, has_monitor, capacity, status
  */
 function createSeatCardHTML(seat) {
+    const seatId       = seat.seat_id ?? seat.id;
     const status      = seat.status || 'available';
     const statusLabel = STATUS_LABEL[status] || status;
     const statusClass = STATUS_CLASS[status] || 'available';
@@ -945,15 +1034,18 @@ function createSeatCardHTML(seat) {
     // 予約情報を取得（その席の直近の有効な予約）
     const now = new Date();
     const reservation = reservationsData.find(r =>
+
         r.seat_id === seat.seat_id &&
         (r.status === 'confirmed' || r.status === 'reserved') &&
         new Date(r.end_datetime) > now
+
     );
 
     // 詳細テキスト（予約者名と時間）
     const detailText = reservation
         ? `${formatTime(reservation.start_datetime)}〜${formatTime(reservation.end_datetime)}`
         : (status === 'available' || status === 'empty' ? '本日空き' : '');
+
 
     // 収容人数
     const capacityHtml = seat.capacity
@@ -962,22 +1054,31 @@ function createSeatCardHTML(seat) {
 
     // モニター有無 ← has_monitor フラグを使用
     const monitorHtml = seat.has_monitor
+
         ? `<div class="seat-monitor">🖥️ モニター有</div>`
         : '';
 
+    const layoutClass = getSeatLayout(seat.seat_number);
+    const seatName = seat.seat_name || seat.seat_number;
+    const capacityHtml = seat.capacity ? `<div class="seat-capacity">${seat.capacity}名</div>` : '';
+
     return `
         <div class="seat-card ${statusClass}"
+
              id="seat-card-${seat.seat_id}"
              data-seat-id="${seat.seat_id}">
             <div class="seat-card-header">
                 <div class="seat-name">${seat.seat_name}</div>
                 ${capacityHtml}
             </div>
+
             <span class="status-badge badge-${statusClass}">${statusLabel}</span>
             <div class="seat-detail">${detailText}</div>
             ${monitorHtml}
             <button class="reserve-btn"
+
                     onclick="openModal(${seat.seat_id}, '${seat.seat_name}')">
+
                 予約する
             </button>
         </div>
@@ -1263,6 +1364,7 @@ async function connectSignalR() {
 
 function updateSeatCard(seatId, newStatus) {
     const seat = seatsData.find(s => s.seat_id === seatId);
+
     if (!seat) return;
     seat.status = newStatus;
 
