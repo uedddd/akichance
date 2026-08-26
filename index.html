@@ -4,678 +4,131 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🏢 空きチャンス — 打合せ机 予約・使用状況</title>
-
-    <!-- Microsoft SignalR クライアントライブラリ -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
-
     <style>
-        /* ========================================
-           リセット・基本設定
-        ======================================== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
 
-        body {  
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #f0f2f5;
-            color: #333;
-        }
-
-        /* ========================================
-           ヘッダー
-        ======================================== */
-        .header {
-            background: #1a1a2e;
-            color: white;
-            padding: 16px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .header-title {
-            font-size: 20px;
-            font-weight: bold;
-        }
-
-        .connection-status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-        }
-
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: #888;
-        }
-
+        .header { background: #1a1a2e; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .header-title { font-size: 20px; font-weight: bold; }
+        .connection-status { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #888; }
         .status-dot.connected    { background: #4CAF50; }
         .status-dot.disconnected { background: #F44336; }
         .status-dot.connecting   { background: #FF9800; }
 
-        /* ========================================
-           集計バー
-        ======================================== */
-        .summary-bar {
-            background: white;
-            padding: 12px 24px;
-            display: flex;
-            gap: 24px;
-            border-bottom: 1px solid #e0e0e0;
-            flex-wrap: wrap;
-            align-items: center;
-        }
+        .summary-bar { background: white; padding: 12px 24px; display: flex; gap: 24px; border-bottom: 1px solid #e0e0e0; flex-wrap: wrap; align-items: center; }
+        .summary-item { display: flex; align-items: center; gap: 8px; }
+        .summary-count { font-size: 24px; font-weight: bold; }
+        .summary-label { font-size: 13px; color: #666; }
+        .count-total { color: #1a1a2e; } .count-empty { color: #4CAF50; } .count-in-use { color: #F44336; } .count-reserved { color: #FF9800; }
 
-        .summary-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .legend { background: white; padding: 10px 24px; display: flex; gap: 20px; border-bottom: 1px solid #e0e0e0; flex-wrap: wrap; align-items: center; }
+        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+        .legend-dot { width: 14px; height: 14px; border-radius: 3px; }
 
-        .summary-count {
-            font-size: 24px;
-            font-weight: bold;
-        }
+        .tabs { background: white; padding: 0 24px; display: flex; border-bottom: 2px solid #e0e0e0; }
+        .tab-btn { padding: 14px 24px; border: none; background: none; font-size: 14px; font-weight: bold; color: #888; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color 0.2s, border-color 0.2s; }
+        .tab-btn.active { color: #1a1a2e; border-bottom-color: #1a1a2e; }
+        .tab-btn:hover { color: #1a1a2e; }
 
-        .summary-label {
-            font-size: 13px;
-            color: #666;
-        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 
-        .count-total    { color: #1a1a2e; }
-        .count-empty    { color: #4CAF50; }
-        .count-in-use   { color: #F44336; }
-        .count-reserved { color: #FF9800; }
+        .floor-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .section-title { font-size: 18px; font-weight: bold; color: #1a1a2e; }
+        .floor-tabs { display: flex; gap: 8px; }
+        .floor-btn { padding: 8px 20px; border: 2px solid #1a1a2e; background: white; border-radius: 20px; font-size: 13px; font-weight: bold; color: #1a1a2e; cursor: pointer; transition: background 0.2s, color 0.2s; }
+        .floor-btn.active { background: #1a1a2e; color: white; }
+        .floor-btn:hover:not(.active) { background: #f0f2f5; }
 
-        /* ========================================
-           凡例
-        ======================================== */
-        .legend {
-            background: white;
-            padding: 10px 24px;
-            display: flex;
-            gap: 20px;
-            border-bottom: 1px solid #e0e0e0;
-            flex-wrap: wrap;
-            align-items: center;
-        }
+        .floor-content { display: none; }
+        .floor-content.active { display: block; }
 
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 13px;
-        }
+        .seats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
 
-        .legend-dot {
-            width: 14px;
-            height: 14px;
-            border-radius: 3px;
-        }
-
-        .legend-monitor {
-            font-size: 13px;
-            color: #555;
-        }
-
-        /* ========================================
-           タブ
-        ======================================== */
-        .tabs {
-            background: white;
-            padding: 0 24px;
-            display: flex;
-            gap: 0;
-            border-bottom: 2px solid #e0e0e0;
-        }
-
-        .tab-btn {
-            padding: 14px 24px;
-            border: none;
-            background: none;
-            font-size: 14px;
-            font-weight: bold;
-            color: #888;
-            cursor: pointer;
-            border-bottom: 3px solid transparent;
-            margin-bottom: -2px;
-            transition: color 0.2s, border-color 0.2s;
-        }
-
-        .tab-btn.active {
-            color: #1a1a2e;
-            border-bottom-color: #1a1a2e;
-        }
-
-        .tab-btn:hover {
-            color: #1a1a2e;
-        }
-
-        /* ========================================
-           タブコンテンツ
-        ======================================== */
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        /* ========================================
-           メインコンテンツ
-        ======================================== */
-        .main {
-            padding: 24px;
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        /* ========================================
-           階切替
-        ======================================== */
-        .floor-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-
-        .section-title {
-            font-size: 18px;
-            font-weight: bold;
-            color: #1a1a2e;
-        }
-
-        .floor-tabs {
-            display: flex;
-            gap: 8px;
-        }
-
-        .floor-btn {
-            padding: 8px 20px;
-            border: 2px solid #1a1a2e;
-            background: white;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: bold;
-            color: #1a1a2e;
-            cursor: pointer;
-            transition: background 0.2s, color 0.2s;
-        }
-
-        .floor-btn.active {
-            background: #1a1a2e;
-            color: white;
-        }
-
-        .floor-btn:hover:not(.active) {
-            background: #f0f2f5;
-        }
-
-        /* ========================================
-           フロアコンテンツ
-        ======================================== */
-        .floor-content {
-            display: none;
-        }
-
-        .floor-content.active {
-            display: block;
-        }
-
-        /* ========================================
-           席カードグリッド
-        ======================================== */
-        .seats-grid {
-            display: grid;
-            grid-template-columns: 100px repeat(10, minmax(56px, 1fr)) 100px;
-            grid-template-rows: repeat(7, minmax(70px, auto));
-            gap: 10px;
-            min-height: 600px;
-            padding: 20px;
-            background: #f4f7fb;
-            border: 2px solid #c8d9ea;
-            border-radius: 12px;
-        }
-
-        .seat-card[data-layout] {
-            min-width: 0;
-            padding: 10px;
-            border: 2px solid #b8cde1;
-            border-left: 5px solid #ccc;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        }
-
-        .seat-card[data-layout="meeting-left-1"] { grid-column: 1; grid-row: 1; }
-        .seat-card[data-layout="meeting-left-2"] { grid-column: 1; grid-row: 2; }
-        .seat-card[data-layout="meeting-left-3"] { grid-column: 1; grid-row: 3; }
-        .seat-card[data-layout="meeting-right-4"] { grid-column: 12; grid-row: 1; }
-        .seat-card[data-layout="meeting-right-5"] { grid-column: 12; grid-row: 2; }
-        .seat-card[data-layout="meeting-right-6"] { grid-column: 12; grid-row: 3; }
-
-        .seat-card[data-layout="meeting-top-1"] { grid-column: 3; grid-row: 1; }
-        .seat-card[data-layout="meeting-top-2"] { grid-column: 4 / span 2; grid-row: 1; }
-        .seat-card[data-layout="meeting-top-3"] { grid-column: 6; grid-row: 1; }
-        .seat-card[data-layout="meeting-top-4"] { grid-column: 8; grid-row: 1; }
-        .seat-card[data-layout="meeting-top-5"] { grid-column: 9; grid-row: 1; }
-        .seat-card[data-layout="meeting-top-6"] { grid-column: 10; grid-row: 1; }
-        .seat-card[data-layout="meeting-bottom-7"] { grid-column: 3; grid-row: 5; }
-        .seat-card[data-layout="meeting-bottom-8"] { grid-column: 4 / span 2; grid-row: 5; }
-        .seat-card[data-layout="meeting-bottom-9"] { grid-column: 6; grid-row: 5; }
-        .seat-card[data-layout="meeting-bottom-10"] { grid-column: 7 / span 2; grid-row: 5; }
-        .seat-card[data-layout="meeting-bottom-11"] { grid-column: 9; grid-row: 5; }
-        .seat-card[data-layout="meeting-bottom-12"] { grid-column: 10; grid-row: 5; }
-
-        .seat-card[data-layout="free-1"] { grid-column: 2; grid-row: 7; }
-        .seat-card[data-layout="free-2"] { grid-column: 3; grid-row: 7; }
-        .seat-card[data-layout="free-3"] { grid-column: 9; grid-row: 7; }
-        .seat-card[data-layout="free-4"] { grid-column: 10; grid-row: 7; }
-        .seat-card[data-layout="free-5"] { grid-column: 11; grid-row: 7; }
-
-        .seat-card[data-layout^="meeting-"] {
-            min-width: 0;
-            padding: 10px;
-            border: 2px solid #b8cde1;
-            border-left-width: 5px;
-        }
-
-        .seat-card[data-layout^="meeting-"] .seat-name,
-        .seat-card[data-layout^="meeting-"] .seat-detail,
-        .seat-card[data-layout^="meeting-"] .seat-monitor {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .seat-card[data-layout^="meeting-"] .reserve-btn,
-        .seat-card[data-layout^="meeting-"] .status-badge {
-            font-size: 11px;
-        }
-
-        .seat-card[data-layout^="meeting-"] .reserve-btn {
-            padding: 6px 4px;
-        }
-
-        .seat-card[data-layout^="free-"] {
-            min-width: 0;
-            padding: 10px;
-        }
-
-        .seat-card[data-layout^="free-"] .seat-name {
-            font-size: 12px;
-        }
-
-        .seat-card[data-layout^="free-"] .reserve-btn {
-            font-size: 10px;
-            padding: 5px 3px;
-        }
-
-        @media (max-width: 900px) {
-            .seats-grid {
-                overflow-x: auto;
-                min-width: 820px;
-            }
-        }
-
-        /* ========================================
-           席カード
-        ======================================== */
-        .seat-card {
-            background: white;
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            border-left: 5px solid #ccc;
-            transition: transform 0.2s, box-shadow 0.2s;
-            cursor: pointer;
-        }
-
-        .seat-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-        }
-
+        .seat-card { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 5px solid #ccc; transition: transform 0.2s, box-shadow 0.2s; }
+        .seat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
         .seat-card.available { border-left-color: #4CAF50; }
         .seat-card.in_use    { border-left-color: #F44336; }
         .seat-card.reserved  { border-left-color: #FF9800; }
 
-        .seat-card-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            margin-bottom: 8px;
-        }
+        .seat-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+        .seat-name { font-size: 15px; font-weight: bold; }
+        .seat-capacity { font-size: 12px; color: #888; background: #f0f2f5; padding: 2px 8px; border-radius: 10px; }
 
-        .seat-name {
-            font-size: 15px;
-            font-weight: bold;
-        }
-
-        .seat-capacity {
-            font-size: 12px;
-            color: #888;
-            background: #f0f2f5;
-            padding: 2px 8px;
-            border-radius: 10px;
-        }
-
-        .seat-id {
-            font-size: 12px;
-            color: #888;
-            margin-bottom: 10px;
-        }
-
-        .status-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
-            color: white;
-            margin-bottom: 6px;
-        }
-
+        .status-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; color: white; margin-bottom: 6px; }
         .badge-available { background: #4CAF50; }
         .badge-in_use    { background: #F44336; }
         .badge-reserved  { background: #FF9800; }
 
-        .seat-detail {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 4px;
-            min-height: 16px;
-        }
+        .seat-detail  { font-size: 12px; color: #666; margin-bottom: 4px; min-height: 16px; }
+        .seat-monitor { font-size: 12px; color: #1976D2; margin-bottom: 10px; }
 
-        .seat-monitor {
-            font-size: 12px;
-            color: #555;
-            margin-bottom: 10px;
-        }
+        .reserve-btn { width: 100%; padding: 8px; border: 1px solid #1a1a2e; background: white; border-radius: 6px; font-size: 13px; font-weight: bold; color: #1a1a2e; cursor: pointer; transition: background 0.2s, color 0.2s; margin-top: 8px; }
+        .reserve-btn:hover { background: #1a1a2e; color: white; }
 
-        .reserve-btn {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #1a1a2e;
-            background: white;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: bold;
-            color: #1a1a2e;
-            cursor: pointer;
-            transition: background 0.2s, color 0.2s;
-            margin-top: 8px;
-        }
+        .cancel-btn { width: 100%; padding: 8px; border: 1px solid #F44336; background: white; border-radius: 6px; font-size: 13px; font-weight: bold; color: #F44336; cursor: pointer; transition: background 0.2s, color 0.2s; margin-top: 6px; }
+        .cancel-btn:hover { background: #F44336; color: white; }
 
-        .reserve-btn:hover {
-            background: #1a1a2e;
-            color: white;
-        }
+        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        .seat-card.updating { animation: flash 0.6s ease-in-out; }
 
-        /* 更新アニメーション */
-        @keyframes flash {
-            0%   { opacity: 1; }
-            50%  { opacity: 0.4; }
-            100% { opacity: 1; }
-        }
+        .timeline-wrap { overflow-x: auto; }
+        .timeline-table { border-collapse: collapse; min-width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .tl-label-col { width: 160px; min-width: 160px; }
+        .tl-time-col  { width: 60px; min-width: 60px; }
+        .timeline-table thead th { background: #f0f2f5; padding: 10px 0; font-size: 12px; font-weight: bold; color: #666; text-align: center; border-right: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
+        .timeline-table thead th.tl-label-col { text-align: left; padding-left: 12px; }
+        .tl-border-hour    { border-right: 2px solid #bbb !important; }
+        .tl-border-half    { border-right: 1px solid #ddd !important; }
+        .tl-border-quarter { border-right: 1px dashed #e8e8e8 !important; }
+        .timeline-table tbody tr { border-bottom: 1px solid #f0f2f5; }
+        .timeline-table tbody tr:last-child { border-bottom: none; }
+        .tl-label { padding: 0 10px; font-size: 13px; font-weight: bold; color: #333; border-right: 2px solid #e0e0e0; white-space: nowrap; height: 44px; vertical-align: middle; }
+        .tl-cell { position: relative; height: 44px; padding: 0; vertical-align: middle; }
+        .tl-block { position: absolute; top: 6px; bottom: 6px; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: bold; color: white; white-space: nowrap; overflow: hidden; z-index: 1; cursor: default; }
+        .tl-block.reserved { background: #FF9800; }
+        .tl-block.in_use   { background: #F44336; }
 
-        .seat-card.updating {
-            animation: flash 0.6s ease-in-out;
-        }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay.open { display: flex; }
+        .modal { background: white; border-radius: 16px; padding: 28px; width: 420px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+        .modal-title { font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #1a1a2e; }
 
-        /* ========================================
-           タイムライン
-        ======================================== */
-        .timeline-wrap {
-            overflow-x: auto;
-        }
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 13px; font-weight: bold; color: #555; margin-bottom: 6px; }
+        .form-input, .form-select { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; color: #333; background: white; }
+        .form-input:focus, .form-select:focus { outline: none; border-color: #1a1a2e; }
+        .form-input[readonly] { background: #f0f2f5; color: #888; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .pw-hint { font-size: 11px; color: #f57c00; margin-top: 4px; }
 
-        .timeline-header {
-            display: grid;
-            grid-template-columns: 160px repeat(9, 1fr);
-            gap: 0;
-            background: #f0f2f5;
-            border-radius: 8px 8px 0 0;
-            border: 1px solid #e0e0e0;
-            border-bottom: none;
-        }
+        .modal-buttons { display: flex; gap: 12px; margin-top: 24px; }
+        .btn-confirm { flex: 1; padding: 12px; background: #1a1a2e; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .btn-confirm:hover { background: #2d2d5e; }
+        .btn-cancel { flex: 1; padding: 12px; background: white; color: #333; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .btn-cancel:hover { background: #f0f2f5; }
 
-        .timeline-header-cell {
-            padding: 10px 8px;
-            font-size: 12px;
-            font-weight: bold;
-            color: #666;
-            text-align: center;
-            border-right: 1px solid #e0e0e0;
-        }
+        .confirm-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; }
+        .confirm-overlay.open { display: flex; }
+        .confirm-dialog { background: white; border-radius: 16px; padding: 28px; width: 380px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); text-align: center; }
+        .confirm-icon  { font-size: 40px; margin-bottom: 12px; }
+        .confirm-title { font-size: 16px; font-weight: bold; margin-bottom: 8px; color: #1a1a2e; }
+        .confirm-text  { font-size: 14px; color: #666; margin-bottom: 16px; }
+        .confirm-buttons { display: flex; gap: 12px; margin-top: 16px; }
+        .btn-danger { flex: 1; padding: 12px; background: #F44336; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .btn-danger:hover { background: #d32f2f; }
 
-        .timeline-header-cell:last-child {
-            border-right: none;
-        }
-
-        .timeline-row {
-            display: grid;
-            grid-template-columns: 160px repeat(9, 1fr);
-            gap: 0;
-            border: 1px solid #e0e0e0;
-            border-top: none;
-            background: white;
-        }
-
-        .timeline-row:last-child {
-            border-radius: 0 0 8px 8px;
-        }
-
-        .timeline-label {
-            padding: 12px 10px;
-            font-size: 13px;
-            font-weight: bold;
-            color: #333;
-            border-right: 1px solid #e0e0e0;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .timeline-cell {
-            border-right: 1px solid #f0f2f5;
-            position: relative;
-            height: 44px;
-        }
-
-        .timeline-cell:last-child {
-            border-right: none;
-        }
-
-        .timeline-block {
-            position: absolute;
-            top: 6px;
-            bottom: 6px;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            padding: 0 8px;
-            font-size: 11px;
-            font-weight: bold;
-            color: white;
-            white-space: nowrap;
-            overflow: hidden;
-        }
-
-        .block-in_use    { background: #F44336; }
-        .block-reserved  { background: #FF9800; }
-
-        /* ========================================
-           予約モーダル
-        ======================================== */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .modal-overlay.open {
-            display: flex;
-        }
-
-        .modal {
-            background: white;
-            border-radius: 16px;
-            padding: 28px;
-            width: 400px;
-            max-width: 90vw;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-        }
-
-        .modal-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 20px;
-            color: #1a1a2e;
-        }
-
-        .form-group {
-            margin-bottom: 16px;
-        }
-
-        .form-label {
-            display: block;
-            font-size: 13px;
-            font-weight: bold;
-            color: #555;
-            margin-bottom: 6px;
-        }
-
-        .form-input,
-        .form-select {
-            width: 100%;
-            padding: 10px 12px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 14px;
-            color: #333;
-            background: white;
-            transition: border-color 0.2s;
-        }
-
-        .form-input:focus,
-        .form-select:focus {
-            outline: none;
-            border-color: #1a1a2e;
-        }
-
-        .form-input[readonly] {
-            background: #f0f2f5;
-            color: #888;
-        }
-
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
-
-        .modal-buttons {
-            display: flex;
-            gap: 12px;
-            margin-top: 24px;
-        }
-
-        .btn-confirm {
-            flex: 1;
-            padding: 12px;
-            background: #1a1a2e;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .btn-confirm:hover {
-            background: #2d2d5e;
-        }
-
-        .btn-cancel {
-            flex: 1;
-            padding: 12px;
-            background: white;
-            color: #333;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .btn-cancel:hover {
-            background: #f0f2f5;
-        }
-
-        /* ========================================
-           ローディング・エラー
-        ======================================== */
-        .loading {
-            text-align: center;
-            padding: 60px;
-            color: #888;
-            font-size: 16px;
-        }
-
-        .error-message {
-            background: #ffebee;
-            border: 1px solid #F44336;
-            border-radius: 8px;
-            padding: 16px;
-            color: #c62828;
-            margin-bottom: 20px;
-        }
-
-        .toast {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            background: #1a1a2e;
-            color: white;
-            padding: 14px 20px;
-            border-radius: 10px;
-            font-size: 14px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-            z-index: 2000;
-            display: none;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from { transform: translateY(20px); opacity: 0; }
-            to   { transform: translateY(0);    opacity: 1; }
-        }
+        .loading { text-align: center; padding: 60px; color: #888; font-size: 16px; }
+        .error-message { background: #ffebee; border: 1px solid #F44336; border-radius: 8px; padding: 16px; color: #c62828; margin-bottom: 20px; }
+        .toast { position: fixed; bottom: 24px; right: 24px; background: #1a1a2e; color: white; padding: 14px 20px; border-radius: 10px; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 3000; display: none; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     </style>
 </head>
 <body>
 
-<!-- ========================================
-     ヘッダー
-======================================== -->
 <div class="header">
     <div class="header-title">🏢 空きチャンス — 打合せ机 予約・使用状況</div>
     <div class="connection-status">
@@ -684,512 +137,436 @@
     </div>
 </div>
 
-<!-- ========================================
-     集計バー
-======================================== -->
 <div class="summary-bar">
-    <div class="summary-item">
-        <span class="summary-count count-total" id="countTotal">-</span>
-        <span class="summary-label">総席数</span>
-    </div>
-    <div class="summary-item">
-        <span class="summary-count count-empty" id="countEmpty">-</span>
-        <span class="summary-label">空き</span>
-    </div>
-    <div class="summary-item">
-        <span class="summary-count count-in-use" id="countInUse">-</span>
-        <span class="summary-label">使用中</span>
-    </div>
-    <div class="summary-item">
-        <span class="summary-count count-reserved" id="countReserved">-</span>
-        <span class="summary-label">予約済み</span>
-    </div>
+    <div class="summary-item"><span class="summary-count count-total"    id="countTotal">-</span><span class="summary-label">総席数</span></div>
+    <div class="summary-item"><span class="summary-count count-empty"    id="countEmpty">-</span><span class="summary-label">空き</span></div>
+    <div class="summary-item"><span class="summary-count count-in-use"   id="countInUse">-</span><span class="summary-label">使用中</span></div>
+    <div class="summary-item"><span class="summary-count count-reserved" id="countReserved">-</span><span class="summary-label">予約済み</span></div>
 </div>
 
-<!-- ========================================
-     凡例
-======================================== -->
 <div class="legend">
-    <div class="legend-item">
-        <div class="legend-dot" style="background:#4CAF50"></div>
-        <span>空き</span>
-    </div>
-    <div class="legend-item">
-        <div class="legend-dot" style="background:#F44336"></div>
-        <span>使用中</span>
-    </div>
-    <div class="legend-item">
-        <div class="legend-dot" style="background:#FF9800"></div>
-        <span>予約済み</span>
-    </div>
-    <div class="legend-item legend-monitor">
-        🖥️ モニター有
-    </div>
+    <div class="legend-item"><div class="legend-dot" style="background:#4CAF50"></div><span>空き</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#F44336"></div><span>使用中</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#FF9800"></div><span>予約済み</span></div>
+    <div class="legend-item" style="font-size:13px;color:#555;">🖥️ モニター有</div>
 </div>
 
-<!-- ========================================
-     タブ
-======================================== -->
 <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('map')">🗺️ フロアマップ</button>
     <button class="tab-btn"        onclick="switchTab('timeline')">📅 タイムライン</button>
 </div>
 
-
-<!-- ========================================
-     フロアマップ タブ
-======================================== -->
 <div class="tab-content active" id="tab-map">
     <div class="main">
-
-        <!-- エラーメッセージ -->
         <div class="error-message" id="errorMessage" style="display:none;"></div>
-
-        <!-- ローディング -->
         <div class="loading" id="loadingMessage">⏳ データを読み込み中...</div>
-
-        <!-- 階切替 + 席グリッド -->
         <div id="floorMapArea" style="display:none;">
-
             <div class="floor-header">
                 <div class="section-title">🗺️ フロアマップ —</div>
-                <div class="floor-tabs">
-                    <button class="floor-btn active" onclick="switchFloor('map', 4)">4階</button>
-                    <button class="floor-btn"        onclick="switchFloor('map', 5)">5階</button>
-                    <button class="floor-btn"        onclick="switchFloor('map', 6)">6階</button>
-                </div>
+                <div class="floor-tabs" id="mapFloorTabs"></div>
             </div>
-
-            <!-- 4階 -->
-            <div class="floor-content active" id="map-floor-4">
-                <div class="seats-grid" id="seatsGrid-4"></div>
-            </div>
-
-            <!-- 5階 -->
-            <div class="floor-content" id="map-floor-5">
-                <div class="seats-grid" id="seatsGrid-5"></div>
-            </div>
-
-            <!-- 6階 -->
-            <div class="floor-content" id="map-floor-6">
-                <div class="seats-grid" id="seatsGrid-6"></div>
-            </div>
-
+            <div id="mapFloorContents"></div>
         </div>
     </div>
 </div>
 
-
-<!-- ========================================
-     タイムライン タブ
-======================================== -->
 <div class="tab-content" id="tab-timeline">
     <div class="main">
-
         <div class="floor-header">
             <div class="section-title">📅 タイムライン（9:00〜18:00）—</div>
-            <div class="floor-tabs">
-                <button class="floor-btn active" onclick="switchFloor('tl', 4)">4階</button>
-                <button class="floor-btn"        onclick="switchFloor('tl', 5)">5階</button>
-                <button class="floor-btn"        onclick="switchFloor('tl', 6)">6階</button>
-            </div>
+            <div class="floor-tabs" id="tlFloorTabs"></div>
         </div>
-
-        <!-- 4階 タイムライン -->
-        <div class="floor-content active" id="tl-floor-4">
-            <div class="timeline-wrap" id="timelineWrap-4"></div>
-        </div>
-
-        <!-- 5階 タイムライン -->
-        <div class="floor-content" id="tl-floor-5">
-            <div class="timeline-wrap" id="timelineWrap-5"></div>
-        </div>
-
-        <!-- 6階 タイムライン -->
-        <div class="floor-content" id="tl-floor-6">
-            <div class="timeline-wrap" id="timelineWrap-6"></div>
-        </div>
-
+        <div id="tlFloorContents"></div>
     </div>
 </div>
 
-
-<!-- ========================================
-     予約モーダル
-======================================== -->
+<!-- 予約モーダル -->
 <div class="modal-overlay" id="modalOverlay">
     <div class="modal">
         <div class="modal-title">📝 予約フォーム</div>
-
         <div class="form-group">
             <label class="form-label">席名</label>
             <input class="form-input" id="formSeatName" type="text" readonly>
             <input type="hidden" id="formSeatId">
         </div>
-
         <div class="form-group">
             <label class="form-label">予約者名</label>
             <input class="form-input" id="formUserName" type="text" placeholder="例：田中 太郎">
         </div>
-
         <div class="form-group">
             <label class="form-label">メールアドレス</label>
             <input class="form-input" id="formEmail" type="email" placeholder="例：tanaka@example.com">
         </div>
-
         <div class="form-row">
             <div class="form-group">
                 <label class="form-label">開始時間</label>
                 <select class="form-select" id="formStartTime">
-                    <option>9:00</option>
-                    <option>9:30</option>
-                    <option>10:00</option>
-                    <option>10:30</option>
-                    <option>11:00</option>
-                    <option>11:30</option>
-                    <option>12:00</option>
-                    <option>12:30</option>
-                    <option>13:00</option>
-                    <option>13:30</option>
-                    <option>14:00</option>
-                    <option>14:30</option>
-                    <option>15:00</option>
-                    <option>15:30</option>
-                    <option>16:00</option>
-                    <option>16:30</option>
-                    <option>17:00</option>
-                    <option>17:30</option>
+                    <option>9:00</option><option>9:30</option>
+                    <option>10:00</option><option>10:30</option>
+                    <option>11:00</option><option>11:30</option>
+                    <option>12:00</option><option>12:30</option>
+                    <option>13:00</option><option>13:30</option>
+                    <option>14:00</option><option>14:30</option>
+                    <option>15:00</option><option>15:30</option>
+                    <option>16:00</option><option>16:30</option>
+                    <option>17:00</option><option>17:30</option>
                 </select>
             </div>
             <div class="form-group">
                 <label class="form-label">終了時間</label>
                 <select class="form-select" id="formEndTime">
                     <option>9:30</option>
-                    <option>10:00</option>
-                    <option>10:30</option>
-                    <option>11:00</option>
-                    <option>11:30</option>
-                    <option>12:00</option>
-                    <option>12:30</option>
-                    <option>13:00</option>
-                    <option>13:30</option>
-                    <option>14:00</option>
-                    <option>14:30</option>
-                    <option>15:00</option>
-                    <option>15:30</option>
-                    <option>16:00</option>
-                    <option>16:30</option>
-                    <option>17:00</option>
-                    <option>17:30</option>
+                    <option>10:00</option><option>10:30</option>
+                    <option>11:00</option><option>11:30</option>
+                    <option>12:00</option><option>12:30</option>
+                    <option>13:00</option><option>13:30</option>
+                    <option>14:00</option><option>14:30</option>
+                    <option>15:00</option><option>15:30</option>
+                    <option>16:00</option><option>16:30</option>
+                    <option>17:00</option><option>17:30</option>
                     <option>18:00</option>
                 </select>
             </div>
         </div>
-
+        <!-- ★追加：キャンセル用パスワード -->
+        <div class="form-group">
+            <label class="form-label">キャンセル用パスワード（4桁の数字）</label>
+            <input class="form-input" id="formPassword" type="password"
+                   maxlength="4" inputmode="numeric" placeholder="例：1234">
+            <div class="pw-hint">⚠️ 予約キャンセル時に必要です。忘れないようにメモしてください。</div>
+        </div>
         <div class="modal-buttons">
             <button class="btn-confirm" onclick="submitReservation()">予約確定</button>
-            <button class="btn-cancel"  onclick="closeModal()">キャンセル</button>
+            <button class="btn-cancel"  onclick="closeModal()">閉じる</button>
         </div>
     </div>
 </div>
 
-<!-- トースト通知 -->
+<!-- キャンセル確認ダイアログ -->
+<div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-dialog">
+        <div class="confirm-icon">⚠️</div>
+        <div class="confirm-title">予約をキャンセルしますか？</div>
+        <div class="confirm-text" id="confirmText"></div>
+        <!-- ★追加：パスワード入力欄 -->
+        <div class="form-group" style="text-align:left;">
+            <label class="form-label">パスワード（4桁の数字）</label>
+            <input class="form-input" id="cancelPassword" type="password"
+                   maxlength="4" inputmode="numeric" placeholder="予約時に設定したパスワード">
+        </div>
+        <div class="confirm-buttons">
+            <button class="btn-danger" onclick="executeCancel()">キャンセルする</button>
+            <button class="btn-cancel" onclick="closeConfirm()">戻る</button>
+        </div>
+    </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
-
-<!-- ========================================
-     JavaScript
-======================================== -->
 <script>
 // ============================================================
 // 定数
 // ============================================================
-
-const API_BASE = '';
+const API_BASE     = '';
+const TL_START_MIN = 9 * 60;
+const TL_END_MIN   = 18 * 60;
+const TL_UNIT_MIN  = 15;
+const TL_CELL_PX   = 60;
+const TL_SLOTS     = (TL_END_MIN - TL_START_MIN) / TL_UNIT_MIN;
 
 const STATUS_LABEL = {
     available : '空き',
+    empty     : '空き',
     in_use    : '使用中',
     reserved  : '予約済み',
-    empty     : '空き',
     completed : '完了',
     expired   : '期限切れ',
     cancelled : 'キャンセル',
 };
-
-
 const STATUS_CLASS = {
     available : 'available',
+    empty     : 'available',
     in_use    : 'in_use',
     reserved  : 'reserved',
-    empty     : 'available',
     completed : 'available',
     expired   : 'available',
     cancelled : 'available',
 };
 
-
-// 時間スロット（タイムライン用）
-const TIME_SLOTS = [
-    '9:00','10:00','11:00','12:00','13:00',
-    '14:00','15:00','16:00','17:00','18:00'
-];
-
-// フロアID → 階数 のマッピング
-// ※ floors テーブルのデータに合わせて変更してください
-const FLOOR_ID_MAP = {
-    1: 4,   // floor_id=1 → 4階
-    2: 4,   // floor_id=2 → 4階  ← DBデータ見るとfloor_id=2が4階の席
-    3: 5,   // floor_id=3 → 5階
-    4: 6,   // floor_id=4 → 6階
-};
-
 // ============================================================
 // 状態管理
 // ============================================================
-
 let seatsData        = [];
 let reservationsData = [];
-let floorsData       = [];  // floors テーブルのデータ
+let floorsData       = [];
+
+function nowMinutes() {
+    const d = new Date();
+    return d.getHours() * 60 + d.getMinutes();
+}
+
+// ============================================================
+// 表示用ステータス計算
+// ============================================================
+function getDisplayStatus(seat) {
+    const dbStatus = seat.status || 'empty';
+    if (dbStatus === 'in_use') return 'in_use';
+    const nowMin = nowMinutes();
+    const active = reservationsData.find(r =>
+        r.seat_id === seat.seat_id &&
+        r.status  === 'reserved' &&
+        timeToMinutesFromISO(r.start_datetime) <= nowMin &&
+        timeToMinutesFromISO(r.end_datetime)   >  nowMin
+    );
+    return active ? 'reserved' : 'available';
+}
+
+function getUpcomingReservation(seatId) {
+    const nowMin = nowMinutes();
+    const list = reservationsData
+        .filter(r =>
+            r.seat_id === seatId &&
+            r.status  === 'reserved' &&
+            timeToMinutesFromISO(r.end_datetime) > nowMin
+        )
+        .sort((a, b) =>
+            timeToMinutesFromISO(a.start_datetime) -
+            timeToMinutesFromISO(b.start_datetime)
+        );
+    return list.length > 0 ? list[0] : null;
+}
 
 // ============================================================
 // タブ・階切替
 // ============================================================
-
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-        btn.classList.toggle('active', (tab === 'map' ? i === 0 : i === 1));
+        btn.classList.toggle('active', tab === 'map' ? i === 0 : i === 1);
     });
     document.getElementById('tab-map').classList.toggle('active',      tab === 'map');
     document.getElementById('tab-timeline').classList.toggle('active', tab === 'timeline');
 }
 
-function switchFloor(prefix, floor) {
-    const tabId = prefix === 'map' ? 'tab-map' : 'tab-timeline';
-    const tabEl = document.getElementById(tabId);
-    tabEl.querySelectorAll('.floor-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.textContent.trim() === `${floor}階`);
+function switchFloor(prefix, floorId) {
+    document.querySelectorAll(`#${prefix}FloorTabs .floor-btn`).forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.floorId === String(floorId));
     });
-
-    [4, 5, 6].forEach(f => {
-        const el = document.getElementById(`${prefix}-floor-${f}`);
-        if (el) el.classList.toggle('active', f === floor);
+    document.querySelectorAll(`#${prefix}FloorContents .floor-content`).forEach(el => {
+        el.classList.toggle('active', el.dataset.floorId === String(floorId));
     });
 }
 
 // ============================================================
-// 集計バー更新
+// 集計バー
 // ============================================================
-
 function updateSummary() {
-    const total    = seatsData.length;
-    const empty    = seatsData.filter(s =>
-        s.status === 'available' || s.status === 'empty').length;
-    const inUse    = seatsData.filter(s => s.status === 'in_use').length;
-    const reserved = seatsData.filter(s => s.status === 'reserved').length;
-
-    document.getElementById('countTotal').textContent    = total;
+    let empty = 0, inUse = 0, reserved = 0;
+    seatsData.forEach(seat => {
+        const ds = getDisplayStatus(seat);
+        if      (ds === 'in_use')   inUse++;
+        else if (ds === 'reserved') reserved++;
+        else                        empty++;
+    });
+    document.getElementById('countTotal').textContent    = seatsData.length;
     document.getElementById('countEmpty').textContent    = empty;
     document.getElementById('countInUse').textContent    = inUse;
     document.getElementById('countReserved').textContent = reserved;
 }
 
 // ============================================================
-// floor_id → 階数 変換
+// フロアタブ動的生成
 // ============================================================
+function buildFloorTabs() {
+    ['map', 'tl'].forEach(prefix => {
+        const tabsEl     = document.getElementById(`${prefix}FloorTabs`);
+        const contentsEl = document.getElementById(`${prefix}FloorContents`);
+        tabsEl.innerHTML     = '';
+        contentsEl.innerHTML = '';
 
-/**
- * floors テーブルのデータを使って floor_id から表示用の階数(4/5/6)を返す
- * floors テーブルがない場合は FLOOR_ID_MAP にフォールバック
- */
-function getFloorNumber(floorId) {
-    // floorsData が取得できている場合はそちらを優先
-    if (floorsData.length > 0) {
-        const floor = floorsData.find(f => f.floor_id === floorId);
-        if (floor) {
-            // floor_name から階数を抽出（例: "4階" → 4）
-            const match = floor.floor_name.match(/(\d+)/);
-            if (match) return parseInt(match[1]);
-        }
-    }
-    // フォールバック
-    return FLOOR_ID_MAP[floorId] || 4;
+        floorsData.forEach((floor, idx) => {
+            const btn = document.createElement('button');
+            btn.className       = 'floor-btn' + (idx === 0 ? ' active' : '');
+            btn.textContent     = floor.floor_name;
+            btn.dataset.floorId = floor.floor_id;
+            btn.onclick         = () => switchFloor(prefix, floor.floor_id);
+            tabsEl.appendChild(btn);
+
+            const div = document.createElement('div');
+            div.className       = 'floor-content' + (idx === 0 ? ' active' : '');
+            div.dataset.floorId = floor.floor_id;
+            div.id              = `${prefix}-floor-${floor.floor_id}`;
+            div.innerHTML       = prefix === 'map'
+                ? `<div class="seats-grid" id="seatsGrid-${floor.floor_id}"></div>`
+                : `<div class="timeline-wrap" id="timelineWrap-${floor.floor_id}"></div>`;
+            contentsEl.appendChild(div);
+        });
+    });
 }
 
 // ============================================================
-// フロアマップ 描画
+// フロアマップ描画
 // ============================================================
-
-/**
- * 席カード1枚のHTMLを生成する
- * ※ APIレスポンスのフィールド名に合わせて修正済み
- *   seat_name, floor_id, has_monitor, capacity, status
- */
 function createSeatCardHTML(seat) {
-    const seatId       = seat.seat_id ?? seat.id;
-    const status      = seat.status || 'available';
-    const statusLabel = STATUS_LABEL[status] || status;
-    const statusClass = STATUS_CLASS[status] || 'available';
+    const displayStatus = getDisplayStatus(seat);
+    const statusLabel   = STATUS_LABEL[displayStatus] || displayStatus;
+    const statusClass   = STATUS_CLASS[displayStatus] || 'available';
+    const upcoming      = getUpcomingReservation(seat.seat_id);
 
-    // 予約情報を取得（その席の直近の有効な予約）
-    const now = new Date();
-    const reservation = reservationsData.find(r =>
+    let detailText = '本日空き';
+    if (displayStatus === 'reserved' && upcoming) {
+        detailText = `${formatTime(upcoming.start_datetime)}〜${formatTime(upcoming.end_datetime)}`;
+    } else if (displayStatus === 'in_use') {
+        detailText = '現在使用中';
+    } else if (upcoming) {
+        detailText = `次: ${formatTime(upcoming.start_datetime)}〜${formatTime(upcoming.end_datetime)}`;
+    }
 
-        r.seat_id === seat.seat_id &&
-        (r.status === 'confirmed' || r.status === 'reserved') &&
-        new Date(r.end_datetime) > now
-
-    );
-
-    // 詳細テキスト（予約者名と時間）
-    const detailText = reservation
-        ? `${formatTime(reservation.start_datetime)}〜${formatTime(reservation.end_datetime)}`
-        : (status === 'available' || status === 'empty' ? '本日空き' : '');
-
-
-    // 収容人数
     const capacityHtml = seat.capacity
-        ? `<span class="seat-capacity">${seat.capacity}名</span>`
-        : '';
-
-    // モニター有無 ← has_monitor フラグを使用
+        ? `<span class="seat-capacity">${seat.capacity}名</span>` : '';
     const monitorHtml = seat.has_monitor
+        ? `<div class="seat-monitor">🖥️ モニター有</div>` : '';
 
-        ? `<div class="seat-monitor">🖥️ モニター有</div>`
+    // ★修正：reservation_id の null チェックを追加
+    const cancelBtnHtml = (upcoming && upcoming.reservation_id)
+        ? `<button class="cancel-btn"
+               onclick="openConfirm(${upcoming.reservation_id},
+               '${seat.seat_name.replace(/'/g, "\\'")}',
+               '${formatTime(upcoming.start_datetime)}〜${formatTime(upcoming.end_datetime)}')">
+               予約キャンセル
+           </button>`
         : '';
-
-    const layoutClass = getSeatLayout(seat.seat_number);
-    const seatName = seat.seat_name || seat.seat_number;
-    const capacityHtml = seat.capacity ? `<div class="seat-capacity">${seat.capacity}名</div>` : '';
 
     return `
         <div class="seat-card ${statusClass}"
-
              id="seat-card-${seat.seat_id}"
              data-seat-id="${seat.seat_id}">
             <div class="seat-card-header">
                 <div class="seat-name">${seat.seat_name}</div>
                 ${capacityHtml}
             </div>
-
             <span class="status-badge badge-${statusClass}">${statusLabel}</span>
             <div class="seat-detail">${detailText}</div>
             ${monitorHtml}
             <button class="reserve-btn"
-
-                    onclick="openModal(${seat.seat_id}, '${seat.seat_name}')">
-
+                    onclick="openModal(${seat.seat_id}, '${seat.seat_name.replace(/'/g, "\\'")}')">
                 予約する
             </button>
+            ${cancelBtnHtml}
         </div>
     `;
 }
 
-/**
- * 全席カードを floor_id を使って階ごとに描画する
- */
 function renderSeats() {
-    // 階ごとにグリッドをクリア
-    [4, 5, 6].forEach(floor => {
-        const grid = document.getElementById(`seatsGrid-${floor}`);
+    floorsData.forEach(floor => {
+        const grid = document.getElementById(`seatsGrid-${floor.floor_id}`);
         if (!grid) return;
-
-        // floor_id → 階数 変換を使ってフィルタリング
-        const floorSeats = seatsData.filter(seat =>
-            getFloorNumber(seat.floor_id) === floor
-        );
-
-        if (floorSeats.length > 0) {
-            grid.innerHTML = floorSeats.map(createSeatCardHTML).join('');
-        } else {
-            grid.innerHTML = '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
-        }
+        const floorSeats = seatsData.filter(s => s.floor_id === floor.floor_id);
+        grid.innerHTML = floorSeats.length > 0
+            ? floorSeats.map(createSeatCardHTML).join('')
+            : '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
     });
-
     document.getElementById('loadingMessage').style.display = 'none';
     document.getElementById('floorMapArea').style.display   = 'block';
-
     updateSummary();
 }
 
 // ============================================================
-// タイムライン 描画
+// タイムライン描画
 // ============================================================
-
 function renderTimelines() {
-    [4, 5, 6].forEach(floor => {
-        const wrap = document.getElementById(`timelineWrap-${floor}`);
+    floorsData.forEach(floor => {
+        const wrap = document.getElementById(`timelineWrap-${floor.floor_id}`);
         if (!wrap) return;
 
-        // floor_id → 階数 変換を使ってフィルタリング
-        const floorSeats = seatsData.filter(seat =>
-            getFloorNumber(seat.floor_id) === floor
-        );
-
+        const floorSeats = seatsData.filter(s => s.floor_id === floor.floor_id);
         if (floorSeats.length === 0) {
             wrap.innerHTML = '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
             return;
         }
 
-        // ヘッダー行
-        const headerHTML = `
-            <div class="timeline-header">
-                <div class="timeline-header-cell">席名</div>
-                ${TIME_SLOTS.slice(0, -1).map(t =>
-                    `<div class="timeline-header-cell">${t}</div>`
-                ).join('')}
-            </div>
-        `;
+        let headerCells = `<th class="tl-label-col">席名</th>`;
+        for (let i = 0; i < TL_SLOTS; i++) {
+            const absMin      = TL_START_MIN + i * TL_UNIT_MIN;
+            const isHour      = absMin % 60 === 0;
+            const isHalf      = absMin % 30 === 0 && !isHour;
+            const borderClass = isHour ? 'tl-border-hour' : isHalf ? 'tl-border-half' : 'tl-border-quarter';
+            const label       = isHour ? `${Math.floor(absMin / 60)}:00` : '';
+            headerCells += `<th class="tl-time-col ${borderClass}">${label}</th>`;
+        }
 
-        // データ行
-        const rowsHTML = floorSeats.map(seat => {
+        const rows = floorSeats.map(seat => {
+            const monitorIcon      = seat.has_monitor ? ' 🖥️' : '';
             const seatReservations = reservationsData.filter(r =>
-                r.seat_id === seat.seat_id
+                r.seat_id === seat.seat_id &&
+                ['reserved', 'in_use'].includes(r.status)
             );
 
-            const cellsHTML = TIME_SLOTS.slice(0, -1).map(slot => {
-                const slotStart = timeToMinutes(slot);
-                const slotEnd   = slotStart + 60;
+            let cells = `<td class="tl-label">${seat.seat_name}${monitorIcon}</td>`;
+            const usedSlots = new Set();
 
-                const hit = seatReservations.find(r => {
-                    const rStart = timeToMinutes(formatTime(r.start_datetime));
-                    const rEnd   = timeToMinutes(formatTime(r.end_datetime));
-                    return rStart < slotEnd && rEnd > slotStart;
+            for (let i = 0; i < TL_SLOTS; i++) {
+                const slotStart = TL_START_MIN + i * TL_UNIT_MIN;
+                const slotEnd   = slotStart + TL_UNIT_MIN;
+                const isHour    = slotStart % 60 === 0;
+                const isHalf    = slotStart % 30 === 0 && !isHour;
+                const borderCls = isHour ? 'tl-border-hour' : isHalf ? 'tl-border-half' : 'tl-border-quarter';
+
+                if (usedSlots.has(i)) {
+                    cells += `<td class="tl-cell ${borderCls}"></td>`;
+                    continue;
+                }
+
+                const reservation = seatReservations.find(r => {
+                    const rStart = isoToAbsMin(r.start_datetime);
+                    return rStart >= slotStart && rStart < slotEnd;
                 });
 
-                const blockHTML = hit ? `
-                    <div class="timeline-block block-${hit.status === 'confirmed' ? 'in_use' : 'reserved'}">
-                        ${formatTime(hit.start_datetime)}〜
-                    </div>
-                ` : '';
+                if (reservation) {
+                    const rStart     = isoToAbsMin(reservation.start_datetime);
+                    const rEnd       = isoToAbsMin(reservation.end_datetime);
+                    const clampStart = Math.max(rStart, TL_START_MIN);
+                    const clampEnd   = Math.min(rEnd,   TL_END_MIN);
+                    const duration   = clampEnd - clampStart;
+                    const blockWidth = (duration / TL_UNIT_MIN) * TL_CELL_PX;
+                    const offsetPx   = ((clampStart - slotStart) / TL_UNIT_MIN) * TL_CELL_PX;
+                    const spanSlots  = Math.ceil(duration / TL_UNIT_MIN);
+                    for (let j = i + 1; j < i + spanSlots; j++) usedSlots.add(j);
 
-                return `<div class="timeline-cell">${blockHTML}</div>`;
-            }).join('');
+                    const blockClass = reservation.status === 'in_use' ? 'in_use' : 'reserved';
+                    const timeLabel  = `${formatTime(reservation.start_datetime)}〜${formatTime(reservation.end_datetime)}`;
 
-            // モニターアイコン ← has_monitor フラグを使用
-            const monitorIcon = seat.has_monitor ? ' 🖥️' : '';
-
-            return `
-                <div class="timeline-row">
-                    <div class="timeline-label">${seat.seat_name}${monitorIcon}</div>
-                    ${cellsHTML}
-                </div>
-            `;
+                    cells += `
+                        <td class="tl-cell ${borderCls}" style="position:relative;overflow:visible;">
+                            <div class="tl-block ${blockClass}"
+                                 style="left:${offsetPx}px;width:${blockWidth}px;"
+                                 title="${timeLabel}">
+                                ${timeLabel}
+                            </div>
+                        </td>`;
+                } else {
+                    cells += `<td class="tl-cell ${borderCls}"></td>`;
+                }
+            }
+            return `<tr>${cells}</tr>`;
         }).join('');
 
-        wrap.innerHTML = headerHTML + rowsHTML;
+        wrap.innerHTML = `
+            <table class="timeline-table">
+                <thead><tr>${headerCells}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
     });
 }
 
 // ============================================================
 // 予約モーダル
 // ============================================================
-
 function openModal(seatId, seatName) {
     document.getElementById('formSeatId').value   = seatId;
     document.getElementById('formSeatName').value = seatName;
     document.getElementById('formUserName').value = '';
     document.getElementById('formEmail').value    = '';
+    document.getElementById('formPassword').value = ''; // ★追加
     document.getElementById('modalOverlay').classList.add('open');
 }
 
@@ -1201,27 +578,28 @@ document.getElementById('modalOverlay').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
 });
 
+// ★修正：パスワードバリデーション・payload に password 追加
 async function submitReservation() {
     const seatId    = document.getElementById('formSeatId').value;
     const userName  = document.getElementById('formUserName').value.trim();
     const email     = document.getElementById('formEmail').value.trim();
+    const password  = document.getElementById('formPassword').value.trim();
     const startTime = document.getElementById('formStartTime').value;
     const endTime   = document.getElementById('formEndTime').value;
 
-    if (!userName) { showToast('⚠️ 予約者名を入力してください'); return; }
-    if (!email)    { showToast('⚠️ メールアドレスを入力してください'); return; }
+    if (!userName)                  { showToast('⚠️ 予約者名を入力してください');               return; }
+    if (!email)                     { showToast('⚠️ メールアドレスを入力してください');           return; }
+    if (!/^\d{4}$/.test(password))  { showToast('⚠️ パスワードは4桁の数字で入力してください');   return; }
 
     const today = new Date().toISOString().split('T')[0];
-
-    // APIのフィールド名に合わせて修正
-    // start_datetime / end_datetime / user_id を使用
     const payload = {
-    user_id        : 1,
-    seat_id        : parseInt(seatId),
-    start_datetime : `${today}T${toHHMM(startTime)}:00`,
-    end_datetime   : `${today}T${toHHMM(endTime)}:00`,
-    status         : 'reserved',   // confirmed → reserved
-};
+        user_id        : 1,
+        seat_id        : parseInt(seatId),
+        start_datetime : `${today}T${toHHMM(startTime)}:00`,
+        end_datetime   : `${today}T${toHHMM(endTime)}:00`,
+        status         : 'reserved',
+        password       : password,  // ★追加
+    };
 
     try {
         const res = await fetch(`${API_BASE}/api/reservations`, {
@@ -1229,20 +607,13 @@ async function submitReservation() {
             headers : { 'Content-Type': 'application/json' },
             body    : JSON.stringify(payload),
         });
-
         if (!res.ok) {
             const err = await res.json();
             throw new Error(err.detail || `エラー: ${res.status}`);
         }
-
         closeModal();
         showToast('✅ 予約が完了しました');
-
-        await loadSeats();
-        await loadReservations();
-        renderSeats();
-        renderTimelines();
-
+        await refreshData();
     } catch (error) {
         console.error('[予約] 失敗:', error);
         showToast(`❌ 予約に失敗しました: ${error.message}`);
@@ -1250,17 +621,87 @@ async function submitReservation() {
 }
 
 // ============================================================
-// FastAPI データ取得
+// キャンセル確認ダイアログ
 // ============================================================
+let pendingCancelId = null;
+
+// ★修正：reservation_id の null ガードを追加
+function openConfirm(reservationId, seatName, timeRange) {
+    if (!reservationId) {
+        showToast('❌ 予約情報が取得できません');
+        return;
+    }
+    pendingCancelId = reservationId;
+    document.getElementById('confirmText').textContent =
+        `「${seatName}」の予約（${timeRange}）をキャンセルします。`;
+    document.getElementById('cancelPassword').value = '';
+    document.getElementById('confirmOverlay').classList.add('open');
+}
+
+// ★修正：パスワード欄もリセット
+function closeConfirm() {
+    pendingCancelId = null;
+    document.getElementById('cancelPassword').value = '';
+    document.getElementById('confirmOverlay').classList.remove('open');
+}
+
+// ★修正：パスワードバリデーション・API に password を JSON 送信
+async function executeCancel() {
+    if (!pendingCancelId) return;
+
+    const password = document.getElementById('cancelPassword').value.trim();
+    if (!/^\d{4}$/.test(password)) {
+        showToast('⚠️ パスワードは4桁の数字で入力してください');
+        return;
+    }
+
+    const targetId = pendingCancelId;
+    closeConfirm();
+
+    try {
+        const res = await fetch(
+            `${API_BASE}/api/reservations/cancel/${targetId}`,
+            {
+                method  : 'POST',
+                headers : { 'Content-Type': 'application/json' },
+                body    : JSON.stringify({ password }),  // ★追加
+            }
+        );
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || `エラー: ${res.status}`);
+        }
+        showToast('✅ 予約をキャンセルしました');
+        await refreshData();
+    } catch (error) {
+        console.error('[キャンセル] 失敗:', error);
+        showToast(`❌ ${error.message}`);
+    }
+}
+
+// ============================================================
+// データ取得
+// ============================================================
+
+// ★追加：過去予約削除
+async function cleanupPastReservations() {
+    try {
+        const res  = await fetch(`${API_BASE}/api/reservations/cleanup`, { method: 'DELETE' });
+        const data = await res.json();
+        console.log(`[Cleanup] ${data.message}`);
+    } catch (e) {
+        console.warn('[Cleanup] 過去予約削除失敗:', e);
+    }
+}
 
 async function loadFloors() {
     try {
         const res = await fetch(`${API_BASE}/api/floors`);
         if (!res.ok) throw new Error(`API エラー: ${res.status}`);
         floorsData = await res.json();
-        console.log(`[API] フロアデータ: ${floorsData.length}件`, floorsData);
-    } catch (error) {
-        console.warn('[API] フロアデータ取得失敗（FLOOR_ID_MAPで代替）:', error);
+        console.log(`[API] フロア: ${floorsData.length}件`);
+    } catch (e) {
+        console.warn('[API] フロアデータ取得失敗:', e);
         floorsData = [];
     }
 }
@@ -1270,11 +711,10 @@ async function loadSeats() {
         const res = await fetch(`${API_BASE}/api/seats`);
         if (!res.ok) throw new Error(`API エラー: ${res.status}`);
         seatsData = await res.json();
-        console.log(`[API] 席データ: ${seatsData.length}件`, seatsData[0]); // 最初の1件をログ出力
-    } catch (error) {
-        console.error('[API] 席データ取得失敗:', error);
-        document.getElementById('loadingMessage').style.display = 'none';
-        showError(`データの取得に失敗しました: ${error.message}`);
+        console.log(`[API] 席: ${seatsData.length}件`);
+    } catch (e) {
+        console.error('[API] 席データ取得失敗:', e);
+        showError(`データの取得に失敗しました: ${e.message}`);
     }
 }
 
@@ -1283,36 +723,35 @@ async function loadReservations() {
         const res = await fetch(`${API_BASE}/api/reservations`);
         if (!res.ok) throw new Error(`API エラー: ${res.status}`);
         reservationsData = await res.json();
-        console.log(`[API] 予約データ: ${reservationsData.length}件`);
-    } catch (error) {
-        console.error('[API] 予約データ取得失敗:', error);
+        console.log(`[API] 予約: ${reservationsData.length}件`);
+    } catch (e) {
+        console.error('[API] 予約データ取得失敗:', e);
         reservationsData = [];
     }
 }
 
-// ============================================================
-// SignalR 接続
-// ============================================================
+async function refreshData() {
+    await loadSeats();
+    await loadReservations();
+    renderSeats();
+    renderTimelines();
+}
 
+// ============================================================
+// SignalR
+// ============================================================
 async function connectSignalR() {
     const dot  = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
-
     dot.className    = 'status-dot connecting';
     text.textContent = '接続中...';
 
     try {
-        // まずネゴシエーションエンドポイントを叩く
-        const negotiateRes = await fetch(`${API_BASE}/api/negotiate/negotiate`, {
-            method: 'POST'
-        });
-        const negotiateData = await negotiateRes.json();
-
-        // disabled フラグが立っている場合はリアルタイム更新をスキップ
-        if (negotiateData.disabled) {
+        const r    = await fetch(`${API_BASE}/api/negotiate/negotiate`, { method: 'POST' });
+        const data = await r.json();
+        if (data.disabled) {
             dot.className    = 'status-dot disconnected';
             text.textContent = 'リアルタイム更新無効';
-            console.warn('[SignalR] 無効化されています');
             return;
         }
     } catch (e) {
@@ -1325,71 +764,25 @@ async function connectSignalR() {
         .configureLogging(signalR.LogLevel.Warning)
         .build();
 
-    connection.on('seatStatusUpdated', async (payload) => {
-        console.log('[SignalR] 受信:', payload);
-        const seatId    = payload.seatId;
-        const newStatus = payload.status;
-        if (seatId && newStatus) {
-            updateSeatCard(seatId, newStatus);
-        }
-    });
-
-    connection.onclose(() => {
-        dot.className    = 'status-dot disconnected';
-        text.textContent = '切断';
-    });
-
-    connection.onreconnecting(() => {
-        dot.className    = 'status-dot connecting';
-        text.textContent = '再接続中...';
-    });
-
-    connection.onreconnected(() => {
-        dot.className    = 'status-dot connected';
-        text.textContent = 'リアルタイム接続中';
-    });
+    connection.on('seatStatusUpdated', async () => { await refreshData(); });
+    connection.onclose(      () => { dot.className = 'status-dot disconnected'; text.textContent = '切断'; });
+    connection.onreconnecting(() => { dot.className = 'status-dot connecting';   text.textContent = '再接続中...'; });
+    connection.onreconnected( () => { dot.className = 'status-dot connected';    text.textContent = 'リアルタイム接続中'; });
 
     try {
         await connection.start();
         dot.className    = 'status-dot connected';
         text.textContent = 'リアルタイム接続中';
-        console.log('[SignalR] 接続完了 ✅');
-    } catch (error) {
+    } catch (e) {
         dot.className    = 'status-dot disconnected';
         text.textContent = 'SignalR 接続失敗';
-        console.error('[SignalR] 接続失敗:', error);
         setTimeout(connectSignalR, 10000);
     }
-}
-
-function updateSeatCard(seatId, newStatus) {
-    const seat = seatsData.find(s => s.seat_id === seatId);
-
-    if (!seat) return;
-    seat.status = newStatus;
-
-    const card = document.getElementById(`seat-card-${seatId}`);
-    if (!card) return;
-
-    const statusLabel = STATUS_LABEL[newStatus] || newStatus;
-    const statusClass = STATUS_CLASS[newStatus] || 'available';
-
-    card.className = `seat-card ${statusClass} updating`;
-
-    const badge = card.querySelector('.status-badge');
-    if (badge) {
-        badge.className   = `status-badge badge-${statusClass}`;
-        badge.textContent = statusLabel;
-    }
-
-    setTimeout(() => card.classList.remove('updating'), 600);
-    updateSummary();
 }
 
 // ============================================================
 // ユーティリティ
 // ============================================================
-
 function showError(message) {
     const el = document.getElementById('errorMessage');
     el.textContent   = message;
@@ -1405,43 +798,51 @@ function showToast(message) {
     toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
 
-/** "2025-06-10T09:00:00" → "9:00" */
-function formatTime(isoString) {
-    if (!isoString) return '';
-    const d = new Date(isoString);
+function formatTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
     return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-/** "9:00" → 540（分） */
-function timeToMinutes(timeStr) {
-    if (!timeStr) return 0;
-    const [h, m] = timeStr.split(':').map(Number);
+function isoToAbsMin(iso) {
+    if (!iso) return 0;
+    const d = new Date(iso);
+    return d.getHours() * 60 + d.getMinutes();
+}
+
+function timeToMinutesFromISO(iso) { return isoToAbsMin(iso); }
+
+function timeToMinutes(str) {
+    if (!str) return 0;
+    const [h, m] = str.split(':').map(Number);
     return h * 60 + (m || 0);
 }
 
-/** "9:00" → "09:00" */
-function toHHMM(timeStr) {
-    const [h, m] = timeStr.split(':');
-    return `${h.padStart(2,'0')}:${(m||'00').padStart(2,'0')}`;
+function toHHMM(str) {
+    const [h, m] = str.split(':');
+    return `${h.padStart(2, '0')}:${(m || '00').padStart(2, '0')}`;
 }
 
 // ============================================================
-// 起動処理
+// ★修正：起動時に過去予約削除を追加
 // ============================================================
-
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 アプリ起動');
 
-    await loadFloors();      // floors テーブルを先に取得
+    await cleanupPastReservations(); // ★追加
+
+    await loadFloors();
     await loadSeats();
     await loadReservations();
 
+    buildFloorTabs();
     renderSeats();
     renderTimelines();
+
+    setInterval(async () => { await refreshData(); }, 60 * 1000);
 
     await connectSignalR();
 });
 </script>
-
 </body>
 </html>
