@@ -14,6 +14,10 @@ def test_app_starts_with_temporary_database(monkeypatch, tmp_path):
     reloaded = importlib.reload(app_module)
     client = TestClient(reloaded.app)
 
+    root_response = client.get("/")
+    assert root_response.status_code == 200
+    assert "打合せ机" in root_response.text
+
     response = client.get("/api/seats")
     assert response.status_code == 200
     assert response.json() == []
