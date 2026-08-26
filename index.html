@@ -823,12 +823,14 @@ const STATUS_LABEL = {
     available : '空き',
     in_use    : '使用中',
     reserved  : '予約済み',
+    empty     : '空き',      // DBの値に合わせて追加
 };
 
 const STATUS_CLASS = {
     available : 'available',
     in_use    : 'in_use',
     reserved  : 'reserved',
+    empty     : 'available', // DBの値に合わせて追加
 };
 
 // 時間スロット（タイムライン用）
@@ -837,25 +839,27 @@ const TIME_SLOTS = [
     '14:00','15:00','16:00','17:00','18:00'
 ];
 
+// フロアID → 階数 のマッピング
+// ※ floors テーブルのデータに合わせて変更してください
+const FLOOR_ID_MAP = {
+    1: 4,   // floor_id=1 → 4階
+    2: 4,   // floor_id=2 → 4階  ← DBデータ見るとfloor_id=2が4階の席
+    3: 5,   // floor_id=3 → 5階
+    4: 6,   // floor_id=4 → 6階
+};
 
 // ============================================================
 // 状態管理
 // ============================================================
 
-// 全席データ（APIから取得）
-let seatsData = [];
-
-// 全予約データ（APIから取得）
+let seatsData        = [];
 let reservationsData = [];
-
+let floorsData       = [];  // floors テーブルのデータ
 
 // ============================================================
 // タブ・階切替
 // ============================================================
 
-/**
- * フロアマップ / タイムライン タブを切替える
- */
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach((btn, i) => {
         btn.classList.toggle('active', (tab === 'map' ? i === 0 : i === 1));
@@ -864,26 +868,18 @@ function switchTab(tab) {
     document.getElementById('tab-timeline').classList.toggle('active', tab === 'timeline');
 }
 
-/**
- * 階を切替える
- * prefix : 'map' または 'tl'
- * floor  : 4 / 5 / 6
- */
 function switchFloor(prefix, floor) {
-    // ボタンの active を切替える
-    const tabId  = prefix === 'map' ? 'tab-map' : 'tab-timeline';
-    const tabEl  = document.getElementById(tabId);
+    const tabId = prefix === 'map' ? 'tab-map' : 'tab-timeline';
+    const tabEl = document.getElementById(tabId);
     tabEl.querySelectorAll('.floor-btn').forEach(btn => {
         btn.classList.toggle('active', btn.textContent.trim() === `${floor}階`);
     });
 
-    // コンテンツの active を切替える
     [4, 5, 6].forEach(f => {
         const el = document.getElementById(`${prefix}-floor-${f}`);
         if (el) el.classList.toggle('active', f === floor);
     });
 }
-
 
 // ============================================================
 // 集計バー更新
@@ -891,7 +887,8 @@ function switchFloor(prefix, floor) {
 
 function updateSummary() {
     const total    = seatsData.length;
-    const empty    = seatsData.filter(s => s.status === 'available').length;
+    const empty    = seatsData.filter(s =>
+        s.status === 'available' || s.status === 'empty').length;
     const inUse    = seatsData.filter(s => s.status === 'in_use').length;
     const reserved = seatsData.filter(s => s.status === 'reserved').length;
 
@@ -901,6 +898,27 @@ function updateSummary() {
     document.getElementById('countReserved').textContent = reserved;
 }
 
+// ============================================================
+// floor_id → 階数 変換
+// ============================================================
+
+/**
+ * floors テーブルのデータを使って floor_id から表示用の階数(4/5/6)を返す
+ * floors テーブルがない場合は FLOOR_ID_MAP にフォールバック
+ */
+function getFloorNumber(floorId) {
+    // floorsData が取得できている場合はそちらを優先
+    if (floorsData.length > 0) {
+        const floor = floorsData.find(f => f.floor_id === floorId);
+        if (floor) {
+            // floor_name から階数を抽出（例: "4階" → 4）
+            const match = floor.floor_name.match(/(\d+)/);
+            if (match) return parseInt(match[1]);
+        }
+    }
+    // フォールバック
+    return FLOOR_ID_MAP[floorId] || 4;
+}
 
 // ============================================================
 // フロアマップ 描画
@@ -908,43 +926,50 @@ function updateSummary() {
 
 /**
  * 席カード1枚のHTMLを生成する
+ * ※ APIレスポンスのフィールド名に合わせて修正済み
+ *   seat_name, floor_id, has_monitor, capacity, status
  */
 function createSeatCardHTML(seat) {
     const status      = seat.status || 'available';
     const statusLabel = STATUS_LABEL[status] || status;
     const statusClass = STATUS_CLASS[status] || 'available';
 
-    // 予約情報を取得（その席の直近の予約）
+    // 予約情報を取得（その席の直近の有効な予約）
+    const now = new Date();
     const reservation = reservationsData.find(r =>
-        r.seat_id === seat.id &&
-        (r.status === 'confirmed' || r.status === 'reserved')
+        r.seat_id === seat.seat_id &&
+        (r.status === 'confirmed' || r.status === 'reserved') &&
+        new Date(r.end_datetime) > now
     );
 
+    // 詳細テキスト（予約者名と時間）
     const detailText = reservation
-        ? `${reservation.user_name} | ${formatTime(reservation.start_time)}〜${formatTime(reservation.end_time)}`
-        : (status === 'available' ? '本日空き' : '');
+        ? `${formatTime(reservation.start_datetime)}〜${formatTime(reservation.end_datetime)}`
+        : (status === 'available' || status === 'empty' ? '本日空き' : '');
 
-    const zoneHtml = seat.zone
-        ? `<div class="seat-zone">${seat.zone}</div>`
+    // 収容人数
+    const capacityHtml = seat.capacity
+        ? `<span class="seat-capacity">${seat.capacity}名</span>`
         : '';
 
-    const monitorHtml = seat.description && seat.description.includes('モニター')
+    // モニター有無 ← has_monitor フラグを使用
+    const monitorHtml = seat.has_monitor
         ? `<div class="seat-monitor">🖥️ モニター有</div>`
         : '';
 
     return `
         <div class="seat-card ${statusClass}"
-             id="seat-card-${seat.id}"
-             data-seat-id="${seat.id}">
+             id="seat-card-${seat.seat_id}"
+             data-seat-id="${seat.seat_id}">
             <div class="seat-card-header">
-                <div class="seat-name">${seat.seat_number}</div>
+                <div class="seat-name">${seat.seat_name}</div>
+                ${capacityHtml}
             </div>
-            ${zoneHtml}
             <span class="status-badge badge-${statusClass}">${statusLabel}</span>
             <div class="seat-detail">${detailText}</div>
             ${monitorHtml}
             <button class="reserve-btn"
-                    onclick="openModal(${seat.id}, '${seat.seat_number}')">
+                    onclick="openModal(${seat.seat_id}, '${seat.seat_name}')">
                 予約する
             </button>
         </div>
@@ -952,30 +977,24 @@ function createSeatCardHTML(seat) {
 }
 
 /**
- * 全席カードを階ごとに描画する
+ * 全席カードを floor_id を使って階ごとに描画する
  */
 function renderSeats() {
+    // 階ごとにグリッドをクリア
     [4, 5, 6].forEach(floor => {
         const grid = document.getElementById(`seatsGrid-${floor}`);
         if (!grid) return;
 
-        // zone に階数が含まれる席を抽出
-        // zone が未設定の場合は4階扱い
-        const floorSeats = seatsData.filter(seat => {
-            if (!seat.zone) return floor === 4;
-            return seat.zone.includes(`${floor}階`) ||
-                   seat.seat_number.includes(`${floor}-`) ||
-                   seat.seat_number.includes(`${floor}F`);
-        });
+        // floor_id → 階数 変換を使ってフィルタリング
+        const floorSeats = seatsData.filter(seat =>
+            getFloorNumber(seat.floor_id) === floor
+        );
 
-        // zone が設定されていない場合は全席を4階に表示
-        const targetSeats = floorSeats.length > 0
-            ? floorSeats
-            : (floor === 4 ? seatsData : []);
-
-        grid.innerHTML = targetSeats.length > 0
-            ? targetSeats.map(createSeatCardHTML).join('')
-            : '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
+        if (floorSeats.length > 0) {
+            grid.innerHTML = floorSeats.map(createSeatCardHTML).join('');
+        } else {
+            grid.innerHTML = '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
+        }
     });
 
     document.getElementById('loadingMessage').style.display = 'none';
@@ -984,29 +1003,24 @@ function renderSeats() {
     updateSummary();
 }
 
-
 // ============================================================
 // タイムライン 描画
 // ============================================================
 
-/**
- * タイムラインを階ごとに描画する
- */
 function renderTimelines() {
     [4, 5, 6].forEach(floor => {
         const wrap = document.getElementById(`timelineWrap-${floor}`);
         if (!wrap) return;
 
-        const floorSeats = seatsData.filter(seat => {
-            if (!seat.zone) return floor === 4;
-            return seat.zone.includes(`${floor}階`) ||
-                   seat.seat_number.includes(`${floor}-`) ||
-                   seat.seat_number.includes(`${floor}F`);
-        });
+        // floor_id → 階数 変換を使ってフィルタリング
+        const floorSeats = seatsData.filter(seat =>
+            getFloorNumber(seat.floor_id) === floor
+        );
 
-        const targetSeats = floorSeats.length > 0
-            ? floorSeats
-            : (floor === 4 ? seatsData : []);
+        if (floorSeats.length === 0) {
+            wrap.innerHTML = '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
+            return;
+        }
 
         // ヘッダー行
         const headerHTML = `
@@ -1019,37 +1033,36 @@ function renderTimelines() {
         `;
 
         // データ行
-        const rowsHTML = targetSeats.map(seat => {
+        const rowsHTML = floorSeats.map(seat => {
             const seatReservations = reservationsData.filter(r =>
-                r.seat_id === seat.id
+                r.seat_id === seat.seat_id
             );
 
-            const cellsHTML = TIME_SLOTS.slice(0, -1).map((slot, idx) => {
+            const cellsHTML = TIME_SLOTS.slice(0, -1).map(slot => {
                 const slotStart = timeToMinutes(slot);
                 const slotEnd   = slotStart + 60;
 
-                // このスロットに予約が重なるか確認
                 const hit = seatReservations.find(r => {
-                    const rStart = timeToMinutes(formatTime(r.start_time));
-                    const rEnd   = timeToMinutes(formatTime(r.end_time));
+                    const rStart = timeToMinutes(formatTime(r.start_datetime));
+                    const rEnd   = timeToMinutes(formatTime(r.end_datetime));
                     return rStart < slotEnd && rEnd > slotStart;
                 });
 
                 const blockHTML = hit ? `
                     <div class="timeline-block block-${hit.status === 'confirmed' ? 'in_use' : 'reserved'}">
-                        ${hit.user_name}
+                        ${formatTime(hit.start_datetime)}〜
                     </div>
                 ` : '';
 
                 return `<div class="timeline-cell">${blockHTML}</div>`;
             }).join('');
 
-            const monitorIcon = seat.description && seat.description.includes('モニター')
-                ? ' 🖥️' : '';
+            // モニターアイコン ← has_monitor フラグを使用
+            const monitorIcon = seat.has_monitor ? ' 🖥️' : '';
 
             return `
                 <div class="timeline-row">
-                    <div class="timeline-label">${seat.seat_number}${monitorIcon}</div>
+                    <div class="timeline-label">${seat.seat_name}${monitorIcon}</div>
                     ${cellsHTML}
                 </div>
             `;
@@ -1058,7 +1071,6 @@ function renderTimelines() {
         wrap.innerHTML = headerHTML + rowsHTML;
     });
 }
-
 
 // ============================================================
 // 予約モーダル
@@ -1076,14 +1088,10 @@ function closeModal() {
     document.getElementById('modalOverlay').classList.remove('open');
 }
 
-// モーダル外クリックで閉じる
 document.getElementById('modalOverlay').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
 });
 
-/**
- * 予約を確定して FastAPI に送信する
- */
 async function submitReservation() {
     const seatId    = document.getElementById('formSeatId').value;
     const userName  = document.getElementById('formUserName').value.trim();
@@ -1091,20 +1099,19 @@ async function submitReservation() {
     const startTime = document.getElementById('formStartTime').value;
     const endTime   = document.getElementById('formEndTime').value;
 
-    // バリデーション
     if (!userName) { showToast('⚠️ 予約者名を入力してください'); return; }
     if (!email)    { showToast('⚠️ メールアドレスを入力してください'); return; }
 
-    // 今日の日付を取得
     const today = new Date().toISOString().split('T')[0];
 
+    // APIのフィールド名に合わせて修正
+    // start_datetime / end_datetime / user_id を使用
     const payload = {
-        user_name  : userName,
-        email      : email,
-        seat_id    : parseInt(seatId),
-        start_time : `${today}T${toHHMM(startTime)}:00`,
-        end_time   : `${today}T${toHHMM(endTime)}:00`,
-        status     : 'confirmed',
+        user_id        : 1,   // TODO: ログイン機能実装後に変更
+        seat_id        : parseInt(seatId),
+        start_datetime : `${today}T${toHHMM(startTime)}:00`,
+        end_datetime   : `${today}T${toHHMM(endTime)}:00`,
+        status         : 'confirmed',
     };
 
     try {
@@ -1122,7 +1129,6 @@ async function submitReservation() {
         closeModal();
         showToast('✅ 予約が完了しました');
 
-        // データを再取得して画面を更新
         await loadSeats();
         await loadReservations();
         renderSeats();
@@ -1134,21 +1140,28 @@ async function submitReservation() {
     }
 }
 
-
 // ============================================================
 // FastAPI データ取得
 // ============================================================
+
+async function loadFloors() {
+    try {
+        const res = await fetch(`${API_BASE}/api/floors`);
+        if (!res.ok) throw new Error(`API エラー: ${res.status}`);
+        floorsData = await res.json();
+        console.log(`[API] フロアデータ: ${floorsData.length}件`, floorsData);
+    } catch (error) {
+        console.warn('[API] フロアデータ取得失敗（FLOOR_ID_MAPで代替）:', error);
+        floorsData = [];
+    }
+}
 
 async function loadSeats() {
     try {
         const res = await fetch(`${API_BASE}/api/seats`);
         if (!res.ok) throw new Error(`API エラー: ${res.status}`);
-        const data = await res.json();
-        seatsData = data.map(seat => ({
-            ...seat,
-            status: seat.status || 'available',
-        }));
-        console.log(`[API] 席データ: ${seatsData.length}件`);
+        seatsData = await res.json();
+        console.log(`[API] 席データ: ${seatsData.length}件`, seatsData[0]); // 最初の1件をログ出力
     } catch (error) {
         console.error('[API] 席データ取得失敗:', error);
         document.getElementById('loadingMessage').style.display = 'none';
@@ -1168,7 +1181,6 @@ async function loadReservations() {
     }
 }
 
-
 // ============================================================
 // SignalR 接続
 // ============================================================
@@ -1180,13 +1192,30 @@ async function connectSignalR() {
     dot.className    = 'status-dot connecting';
     text.textContent = '接続中...';
 
+    try {
+        // まずネゴシエーションエンドポイントを叩く
+        const negotiateRes = await fetch(`${API_BASE}/api/negotiate/negotiate`, {
+            method: 'POST'
+        });
+        const negotiateData = await negotiateRes.json();
+
+        // disabled フラグが立っている場合はリアルタイム更新をスキップ
+        if (negotiateData.disabled) {
+            dot.className    = 'status-dot disconnected';
+            text.textContent = 'リアルタイム更新無効';
+            console.warn('[SignalR] 無効化されています');
+            return;
+        }
+    } catch (e) {
+        console.warn('[SignalR] ネゴシエーション失敗:', e);
+    }
+
     const connection = new signalR.HubConnectionBuilder()
         .withUrl(`${API_BASE}/api/negotiate`)
         .withAutomaticReconnect([0, 3000, 10000, 30000])
         .configureLogging(signalR.LogLevel.Warning)
         .build();
 
-    // 席状態更新イベント
     connection.on('seatStatusUpdated', async (payload) => {
         console.log('[SignalR] 受信:', payload);
         const seatId    = payload.seatId;
@@ -1224,11 +1253,8 @@ async function connectSignalR() {
     }
 }
 
-/**
- * 特定の席カードだけをリアルタイム更新する
- */
 function updateSeatCard(seatId, newStatus) {
-    const seat = seatsData.find(s => s.id === seatId);
+    const seat = seatsData.find(s => s.seat_id === seatId);
     if (!seat) return;
     seat.status = newStatus;
 
@@ -1247,11 +1273,8 @@ function updateSeatCard(seatId, newStatus) {
     }
 
     setTimeout(() => card.classList.remove('updating'), 600);
-
     updateSummary();
-    console.log(`[UI] 席更新: id=${seatId} → ${statusLabel}`);
 }
-
 
 // ============================================================
 // ユーティリティ
@@ -1266,7 +1289,7 @@ function showError(message) {
 let toastTimer = null;
 function showToast(message) {
     const el = document.getElementById('toast');
-    el.textContent  = message;
+    el.textContent   = message;
     el.style.display = 'block';
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
@@ -1281,6 +1304,7 @@ function formatTime(isoString) {
 
 /** "9:00" → 540（分） */
 function timeToMinutes(timeStr) {
+    if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
     return h * 60 + (m || 0);
 }
@@ -1291,7 +1315,6 @@ function toHHMM(timeStr) {
     return `${h.padStart(2,'0')}:${(m||'00').padStart(2,'0')}`;
 }
 
-
 // ============================================================
 // 起動処理
 // ============================================================
@@ -1299,6 +1322,7 @@ function toHHMM(timeStr) {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🚀 アプリ起動');
 
+    await loadFloors();      // floors テーブルを先に取得
     await loadSeats();
     await loadReservations();
 
