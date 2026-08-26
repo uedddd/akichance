@@ -9,7 +9,6 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
 
-        /* ヘッダー */
         .header { background: #1a3a5c; color: white; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; }
         .header-left { display: flex; align-items: center; gap: 8px; }
         .header-icon { font-size: 18px; }
@@ -20,7 +19,6 @@
         .status-dot.disconnected { background: #F44336; }
         .status-dot.connecting   { background: #FF9800; }
 
-        /* 集計バー・凡例を1行に */
         .summary-bar {
             background: white;
             padding: 8px 20px;
@@ -42,7 +40,6 @@
         .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #555; white-space: nowrap; }
         .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 
-        /* タブ */
         .tabs { background: white; padding: 0 20px; display: flex; border-bottom: 2px solid #e0e0e0; }
         .tab-btn { padding: 8px 16px; border: none; background: none; font-size: 13px; font-weight: bold; color: #888; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color 0.2s, border-color 0.2s; }
         .tab-btn.active { color: #1a3a5c; border-bottom-color: #1a3a5c; }
@@ -51,10 +48,8 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
-        /* メイン：上下左右パディングを削減 */
         .main { padding: 12px 16px; }
 
-        /* フロアマップヘッダー */
         .floor-map-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         .floor-map-title  { font-size: 14px; font-weight: bold; color: #1a3a5c; }
         .floor-select {
@@ -73,86 +68,80 @@
         }
         .floor-select:focus { outline: none; border-color: #1a3a5c; }
 
-        /* フロアマップ外枠 */
         .floor-map-container {
             background: #eef2f7;
             border-radius: 10px;
             padding: 16px;
+            width: 100%;
         }
 
         /*
-         * 固定グリッドレイアウト
-         * 列構成：
-         *   col1  = 会議室左（100px）
-         *   col2  = gap（16px）
-         *   col3～8 = 打合せ机×6（90px×6）
-         *   col9  = gap（16px）
-         *   col10 = 会議室右（100px）
+         * グリッドレイアウト（横幅を最大限活用）
          *
-         * 行構成：
-         *   row1  = conf上
-         *   row2  = gap（8px）
-         *   row3  = conf中
-         *   row4  = gap（8px）
-         *   row5  = conf下
-         *   row6  = gap（20px）
-         *   row7  = desk上段
-         *   row8  = gap（8px）
-         *   row9  = desk下段
-         *   row10 = gap（20px）
-         *   row11 = free
+         * 列構成：
+         *   col1        = 会議室左（1fr）
+         *   col2        = gap（12px）
+         *   col3〜col8  = 打合せ机×6（各 1fr）
+         *   col9        = gap（12px）
+         *   col10       = 会議室右（1fr）
+         *
+         * 打合せ机 col3〜8 → 4-1-1〜4-1-6 が1行目に並ぶ
          */
         .floor-grid {
             display: grid;
             grid-template-columns:
-                100px 16px
-                repeat(6, 90px)
-                16px 100px;
+                minmax(100px, 1fr)
+                12px
+                repeat(6, minmax(80px, 1fr))
+                12px
+                minmax(100px, 1fr);
             grid-template-rows:
-                auto 8px auto 8px auto
-                20px
-                auto 8px auto
-                20px
-                auto;
-            column-gap: 6px;
+                auto 8px auto 8px auto   /* row1〜5: 会議室3段 */
+                20px                      /* row6: 区切り */
+                auto 8px auto             /* row7〜9: 打合せ机2段 */
+                20px                      /* row10: 区切り */
+                auto;                     /* row11: フリー */
+            column-gap: 0;
+            row-gap: 0;
+            width: 100%;
         }
 
-        /* ========================================
-           グリッド配置クラス
-        ======================================== */
-        .pos-conf-left-1  { grid-column: 1;  grid-row: 1; }
-        .pos-conf-left-2  { grid-column: 1;  grid-row: 3; }
-        .pos-conf-left-3  { grid-column: 1;  grid-row: 5; }
+        /* 会議室左 */
+        .pos-conf-left-1  { grid-column: 1; grid-row: 1; }
+        .pos-conf-left-2  { grid-column: 1; grid-row: 3; }
+        .pos-conf-left-3  { grid-column: 1; grid-row: 5; }
+        /* 会議室右 */
         .pos-conf-right-1 { grid-column: 10; grid-row: 1; }
         .pos-conf-right-2 { grid-column: 10; grid-row: 3; }
         .pos-conf-right-3 { grid-column: 10; grid-row: 5; }
-        .pos-desk-top-1   { grid-column: 3;  grid-row: 7; }
-        .pos-desk-top-2   { grid-column: 4;  grid-row: 7; }
-        .pos-desk-top-3   { grid-column: 5;  grid-row: 7; }
-        .pos-desk-top-4   { grid-column: 6;  grid-row: 7; }
-        .pos-desk-top-5   { grid-column: 7;  grid-row: 7; }
-        .pos-desk-top-6   { grid-column: 8;  grid-row: 7; }
-        .pos-desk-bot-1   { grid-column: 3;  grid-row: 9; }
-        .pos-desk-bot-2   { grid-column: 4;  grid-row: 9; }
-        .pos-desk-bot-3   { grid-column: 5;  grid-row: 9; }
-        .pos-desk-bot-4   { grid-column: 6;  grid-row: 9; }
-        .pos-desk-bot-5   { grid-column: 7;  grid-row: 9; }
-        .pos-desk-bot-6   { grid-column: 8;  grid-row: 9; }
+        /* 打合せ机 1行目 (4-1-1〜4-1-6) */
+        .pos-desk-top-1   { grid-column: 3; grid-row: 7; }
+        .pos-desk-top-2   { grid-column: 4; grid-row: 7; }
+        .pos-desk-top-3   { grid-column: 5; grid-row: 7; }
+        .pos-desk-top-4   { grid-column: 6; grid-row: 7; }
+        .pos-desk-top-5   { grid-column: 7; grid-row: 7; }
+        .pos-desk-top-6   { grid-column: 8; grid-row: 7; }
+        /* 打合せ机 2行目 (4-1-7〜4-1-12) */
+        .pos-desk-bot-1   { grid-column: 3; grid-row: 9; }
+        .pos-desk-bot-2   { grid-column: 4; grid-row: 9; }
+        .pos-desk-bot-3   { grid-column: 5; grid-row: 9; }
+        .pos-desk-bot-4   { grid-column: 6; grid-row: 9; }
+        .pos-desk-bot-5   { grid-column: 7; grid-row: 9; }
+        .pos-desk-bot-6   { grid-column: 8; grid-row: 9; }
+        /* フリー席 */
         .pos-free-left-1  { grid-column: 1;  grid-row: 11; }
         .pos-free-left-2  { grid-column: 2;  grid-row: 11; }
         .pos-free-right-1 { grid-column: 8;  grid-row: 11; }
         .pos-free-right-2 { grid-column: 9;  grid-row: 11; }
         .pos-free-right-3 { grid-column: 10; grid-row: 11; }
 
-        /* ========================================
-           席カード
-        ======================================== */
         .seat-card {
             background: white;
             border-radius: 7px;
             padding: 8px 9px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.10);
             border: 2px solid #e0e0e0;
+            min-width: 0; /* グリッド内で縮む許可 */
         }
         .seat-card.available { border-color: #4CAF50; }
         .seat-card.in_use    { border-color: #F44336; background: #fff8f8; }
@@ -250,9 +239,7 @@
         @keyframes flash { 0% { opacity:1; } 50% { opacity:0.4; } 100% { opacity:1; } }
         .seat-card.updating { animation: flash 0.6s ease-in-out; }
 
-        /* ========================================
-           タイムライン（30分単位）
-        ======================================== */
+        /* タイムライン */
         .timeline-wrap { overflow-x: auto; }
         .timeline-table { border-collapse: collapse; min-width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
         .tl-label-col { width: 140px; min-width: 140px; }
@@ -269,7 +256,6 @@
         .tl-block.reserved { background: #FF9800; }
         .tl-block.in_use   { background: #F44336; }
 
-        /* タイムライン階ヘッダー */
         .tl-floor-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         .tl-title { font-size: 14px; font-weight: bold; color: #1a3a5c; }
         .floor-content { display: none; }
@@ -326,7 +312,7 @@
     </div>
 </div>
 
-<!-- 集計バー＋凡例（1行） -->
+<!-- 集計バー＋凡例 -->
 <div class="summary-bar">
     <div class="summary-item">
         <span class="summary-count count-total" id="countTotal">-</span>
@@ -476,7 +462,7 @@ const TL_START_MIN = 9 * 60;
 const TL_END_MIN   = 18 * 60;
 const TL_UNIT_MIN  = 30;
 const TL_CELL_PX   = 72;
-const TL_SLOTS     = (TL_END_MIN - TL_START_MIN) / TL_UNIT_MIN; // 18スロット
+const TL_SLOTS     = (TL_END_MIN - TL_START_MIN) / TL_UNIT_MIN;
 
 const STATUS_LABEL = {
     available: '空き', empty: '空き', in_use: '使用中',
@@ -487,7 +473,9 @@ const STATUS_CLASS = {
     reserved: 'reserved', completed: 'available', expired: 'available', cancelled: 'available',
 };
 
-// フロアごとレイアウトマップ生成
+// ============================================================
+// フロアレイアウト定義
+// ============================================================
 function getLayoutMap(deskPrefix, confPrefix) {
     return {
         [`${confPrefix}01`]: 'pos-conf-left-1',
@@ -511,6 +499,8 @@ function getLayoutMap(deskPrefix, confPrefix) {
     };
 }
 
+// floor_id → レイアウト設定マッピング
+// ※ floor_id は DB の値に合わせて調整してください
 const FLOOR_LAYOUT = {
     2: { deskPrefix: '4-1', confPrefix: '会議室04' },
     3: { deskPrefix: '5-1', confPrefix: '会議室05' },
@@ -601,7 +591,7 @@ function updateSummary() {
 }
 
 // ============================================================
-// UI構築
+// UI構築（フロアごとのコンテナを作成）
 // ============================================================
 function buildFloorUI() {
     const mapSelect   = document.getElementById('mapFloorSelect');
@@ -609,41 +599,46 @@ function buildFloorUI() {
     const tlSelect    = document.getElementById('tlFloorSelect');
     const tlContents  = document.getElementById('tlFloorContents');
 
-    mapSelect.innerHTML = tlSelect.innerHTML = '';
-    mapContents.innerHTML = tlContents.innerHTML = '';
+    mapSelect.innerHTML   = '';
+    tlSelect.innerHTML    = '';
+    mapContents.innerHTML = '';
+    tlContents.innerHTML  = '';
 
+    // floor_id=1 を除外した対象フロア
     const targetFloors = floorsData.filter(f => f.floor_id !== 1);
 
     targetFloors.forEach((floor, idx) => {
-        // セレクトオプション
+        const isFirst = idx === 0;
+
+        // セレクトオプション（マップ・タイムライン共通）
         [mapSelect, tlSelect].forEach(sel => {
             const opt = document.createElement('option');
-            opt.value = floor.floor_id;
+            opt.value       = floor.floor_id;
             opt.textContent = floor.floor_name;
             sel.appendChild(opt);
         });
 
-        // マップコンテンツ
+        // ---- フロアマップ コンテナ ----
         const mapDiv = document.createElement('div');
-        mapDiv.className       = 'floor-content' + (idx === 0 ? ' active' : '');
-        mapDiv.dataset.floorId = floor.floor_id;
+        mapDiv.className       = 'floor-content' + (isFirst ? ' active' : '');
+        mapDiv.dataset.floorId = String(floor.floor_id);
         mapDiv.innerHTML = `
             <div class="floor-map-container">
                 <div class="floor-grid" id="floorGrid-${floor.floor_id}"></div>
             </div>`;
         mapContents.appendChild(mapDiv);
 
-        // タイムラインコンテンツ
+        // ---- タイムライン コンテナ ----
         const tlDiv = document.createElement('div');
-        tlDiv.className       = 'floor-content' + (idx === 0 ? ' active' : '');
-        tlDiv.dataset.floorId = floor.floor_id;
+        tlDiv.className       = 'floor-content' + (isFirst ? ' active' : '');
+        tlDiv.dataset.floorId = String(floor.floor_id);
         tlDiv.innerHTML       = `<div class="timeline-wrap" id="timelineWrap-${floor.floor_id}"></div>`;
         tlContents.appendChild(tlDiv);
     });
 }
 
 // ============================================================
-// 席カードHTML
+// 席カードHTML生成
 // ============================================================
 function createSeatCardHTML(seat, posClass) {
     const displayStatus = getDisplayStatus(seat);
@@ -697,24 +692,31 @@ function createSeatCardHTML(seat, posClass) {
 // ============================================================
 function renderSeats() {
     const targetFloors = floorsData.filter(f => f.floor_id !== 1);
+
     targetFloors.forEach(floor => {
         const grid = document.getElementById(`floorGrid-${floor.floor_id}`);
         if (!grid) return;
 
         const floorSeats = seatsData.filter(s => s.floor_id === floor.floor_id);
-        const layout     = FLOOR_LAYOUT[floor.floor_id];
-        if (!layout) { grid.innerHTML = '<div style="color:#888;padding:16px;font-size:13px;">レイアウト未定義</div>'; return; }
+        const layoutDef  = FLOOR_LAYOUT[floor.floor_id];
 
-        const layoutMap = getLayoutMap(layout.deskPrefix, layout.confPrefix);
+        if (!layoutDef) {
+            grid.innerHTML = '<div style="color:#888;padding:16px;font-size:13px;">レイアウト未定義</div>';
+            return;
+        }
+
+        const layoutMap = getLayoutMap(layoutDef.deskPrefix, layoutDef.confPrefix);
         const confSeats = floorSeats.filter(s => s.seat_type === 'conf');
         const deskSeats = floorSeats.filter(s => s.seat_type === 'desk');
         const freeSeats = floorSeats.filter(s => s.seat_type === 'free');
 
         let html = '';
+
         [...confSeats, ...deskSeats].forEach(seat => {
             const posClass = layoutMap[seat.seat_name] || '';
             if (posClass) html += createSeatCardHTML(seat, posClass);
         });
+
         freeSeats.forEach((seat, idx) => {
             const posClass = idx < 2
                 ? (FREE_LEFT_POS[idx]      || '')
@@ -732,12 +734,17 @@ function renderSeats() {
 
 // ============================================================
 // タイムライン描画
+// ※ buildFloorUI() で作成した timelineWrap-{floor_id} に描画する
 // ============================================================
 function renderTimelines() {
     const targetFloors = floorsData.filter(f => f.floor_id !== 1);
+
     targetFloors.forEach(floor => {
         const wrap = document.getElementById(`timelineWrap-${floor.floor_id}`);
-        if (!wrap) return;
+        if (!wrap) {
+            console.warn(`[Timeline] timelineWrap-${floor.floor_id} が見つかりません`);
+            return;
+        }
 
         const floorSeats = seatsData.filter(s => s.floor_id === floor.floor_id);
         if (floorSeats.length === 0) {
@@ -745,6 +752,7 @@ function renderTimelines() {
             return;
         }
 
+        // ヘッダー行（時刻）
         let headerCells = `<th class="tl-label-col">席名</th>`;
         for (let i = 0; i < TL_SLOTS; i++) {
             const absMin      = TL_START_MIN + i * TL_UNIT_MIN;
@@ -754,10 +762,12 @@ function renderTimelines() {
             headerCells += `<th class="tl-time-col ${borderClass}">${label}</th>`;
         }
 
+        // データ行（席ごと）
         const rows = floorSeats.map(seat => {
             const monitorIcon      = seat.has_monitor ? ' 🖥️' : '';
             const seatReservations = reservationsData.filter(r =>
-                r.seat_id === seat.seat_id && ['reserved', 'in_use'].includes(r.status)
+                r.seat_id === seat.seat_id &&
+                ['reserved', 'in_use'].includes(r.status)
             );
 
             let cells       = `<td class="tl-label">${seat.seat_name}${monitorIcon}</td>`;
@@ -769,7 +779,10 @@ function renderTimelines() {
                 const isHour    = slotStart % 60 === 0;
                 const borderCls = isHour ? 'tl-border-hour' : 'tl-border-half';
 
-                if (usedSlots.has(i)) { cells += `<td class="tl-cell ${borderCls}"></td>`; continue; }
+                if (usedSlots.has(i)) {
+                    cells += `<td class="tl-cell ${borderCls}"></td>`;
+                    continue;
+                }
 
                 const reservation = seatReservations.find(r => {
                     const rStart = isoToAbsMin(r.start_datetime);
@@ -807,46 +820,7 @@ function renderTimelines() {
                 <thead><tr>${headerCells}</tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
-
-        const typeFilters = wrap.querySelectorAll('.timeline-type-filter');
-        typeFilters.forEach(input => { input.checked = filter.types.includes(input.value); });
-        wrap.querySelector('.timeline-monitor-filter').checked = filter.monitor;
-        wrap.querySelectorAll('.timeline-cap-filter').forEach(input => { input.checked = filter.caps.includes(Number(input.value)); });
-        typeFilters.forEach(input => input.addEventListener('change', () => applyTimelineFilter(floor.floor_id)));
-        wrap.querySelector('.timeline-monitor-filter').addEventListener('change', () => applyTimelineFilter(floor.floor_id));
-        wrap.querySelectorAll('.timeline-cap-filter').forEach(input => input.addEventListener('change', () => applyTimelineFilter(floor.floor_id)));
-        wrap.querySelector('.btn-filter-reset').addEventListener('click', () => resetTimelineFilter(floor.floor_id));
-        applyTimelineFilter(floor.floor_id);
     });
-}
-
-function applyTimelineFilter(floorId) {
-    const wrap = document.getElementById(`timelineWrap-${floorId}`);
-    if (!wrap) return;
-
-    const types = [...wrap.querySelectorAll('.timeline-type-filter:checked')].map(input => input.value);
-    const monitor = wrap.querySelector('.timeline-monitor-filter').checked;
-    const caps = [...wrap.querySelectorAll('.timeline-cap-filter:checked')].map(input => Number(input.value));
-    timelineFilters[floorId] = { types, monitor, caps };
-    const isActive = types.length > 0 || monitor || caps.length > 0;
-
-    wrap.querySelector('.filter-active-badge').classList.toggle('show', isActive);
-    wrap.querySelector('.btn-filter-reset').classList.toggle('show', isActive);
-    wrap.querySelectorAll('tbody tr').forEach(row => {
-        const passType = types.length === 0 || types.includes(row.dataset.seatType);
-        const passMonitor = !monitor || row.dataset.seatType !== 'desk' || row.dataset.monitor === 'true';
-        const capacity = row.dataset.capacity ? Number(row.dataset.capacity) : null;
-        const passCapacity = caps.length === 0 || row.dataset.seatType !== 'desk' || (capacity !== null && caps.includes(capacity));
-        row.style.display = passType && passMonitor && passCapacity ? '' : 'none';
-    });
-}
-
-function resetTimelineFilter(floorId) {
-    timelineFilters[floorId] = { types: [], monitor: false, caps: [] };
-    const wrap = document.getElementById(`timelineWrap-${floorId}`);
-    if (!wrap) return;
-    wrap.querySelectorAll('input').forEach(input => { input.checked = false; });
-    applyTimelineFilter(floorId);
 }
 
 // ============================================================
@@ -861,7 +835,9 @@ function openModal(seatId, seatName) {
     document.getElementById('modalOverlay').classList.add('open');
 }
 function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
-document.getElementById('modalOverlay').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
 
 async function submitReservation() {
     const seatId    = document.getElementById('formSeatId').value;
@@ -887,7 +863,8 @@ async function submitReservation() {
 
     try {
         const res = await fetch(`${API_BASE}/api/reservations`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         });
         if (!res.ok) { const err = await res.json(); throw new Error(err.detail || `エラー: ${res.status}`); }
@@ -905,7 +882,8 @@ let pendingCancelId = null;
 function openConfirm(reservationId, seatName, timeRange) {
     if (!reservationId) { showToast('❌ 予約情報が取得できません'); return; }
     pendingCancelId = reservationId;
-    document.getElementById('confirmText').textContent = `「${seatName}」の予約（${timeRange}）をキャンセルします。`;
+    document.getElementById('confirmText').textContent =
+        `「${seatName}」の予約（${timeRange}）をキャンセルします。`;
     document.getElementById('cancelPassword').value = '';
     document.getElementById('confirmOverlay').classList.add('open');
 }
@@ -925,7 +903,8 @@ async function executeCancel() {
 
     try {
         const res = await fetch(`${API_BASE}/api/reservations/cancel/${targetId}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ password }),
         });
         if (!res.ok) { const err = await res.json(); throw new Error(err.detail || `エラー: ${res.status}`); }
@@ -950,7 +929,10 @@ async function loadFloors() {
         const res = await fetch(`${API_BASE}/api/floors`);
         if (!res.ok) throw new Error(`${res.status}`);
         floorsData = await res.json();
-    } catch (e) { console.warn('[API] フロア取得失敗:', e); floorsData = []; }
+    } catch (e) {
+        console.warn('[API] フロア取得失敗:', e);
+        floorsData = [];
+    }
 }
 
 async function loadSeats() {
@@ -958,7 +940,10 @@ async function loadSeats() {
         const res = await fetch(`${API_BASE}/api/seats`);
         if (!res.ok) throw new Error(`${res.status}`);
         seatsData = await res.json();
-    } catch (e) { console.error('[API] 席取得失敗:', e); showError(`データ取得失敗: ${e.message}`); }
+    } catch (e) {
+        console.error('[API] 席取得失敗:', e);
+        showError(`データ取得失敗: ${e.message}`);
+    }
 }
 
 async function loadReservations() {
@@ -966,7 +951,10 @@ async function loadReservations() {
         const res = await fetch(`${API_BASE}/api/reservations`);
         if (!res.ok) throw new Error(`${res.status}`);
         reservationsData = await res.json();
-    } catch (e) { console.error('[API] 予約取得失敗:', e); reservationsData = []; }
+    } catch (e) {
+        console.error('[API] 予約取得失敗:', e);
+        reservationsData = [];
+    }
 }
 
 async function refreshData() {
@@ -982,12 +970,17 @@ async function refreshData() {
 async function connectSignalR() {
     const dot  = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
-    dot.className = 'status-dot connecting'; text.textContent = '接続中...';
+    dot.className = 'status-dot connecting';
+    text.textContent = '接続中...';
 
     try {
         const r    = await fetch(`${API_BASE}/api/negotiate/negotiate`, { method: 'POST' });
         const data = await r.json();
-        if (data.disabled) { dot.className = 'status-dot disconnected'; text.textContent = 'リアルタイム更新無効'; return; }
+        if (data.disabled) {
+            dot.className    = 'status-dot disconnected';
+            text.textContent = 'リアルタイム更新無効';
+            return;
+        }
     } catch (e) { console.warn('[SignalR] ネゴシエーション失敗:', e); }
 
     const connection = new signalR.HubConnectionBuilder()
@@ -1003,9 +996,11 @@ async function connectSignalR() {
 
     try {
         await connection.start();
-        dot.className = 'status-dot connected'; text.textContent = 'リアルタイム接続中';
+        dot.className    = 'status-dot connected';
+        text.textContent = 'リアルタイム接続中';
     } catch (e) {
-        dot.className = 'status-dot disconnected'; text.textContent = 'SignalR 接続失敗';
+        dot.className    = 'status-dot disconnected';
+        text.textContent = 'SignalR 接続失敗';
         setTimeout(connectSignalR, 10000);
     }
 }
@@ -1013,12 +1008,17 @@ async function connectSignalR() {
 // ============================================================
 // ユーティリティ
 // ============================================================
-function showError(msg) { const el = document.getElementById('errorMessage'); el.textContent = msg; el.style.display = 'block'; }
+function showError(msg) {
+    const el = document.getElementById('errorMessage');
+    el.textContent  = msg;
+    el.style.display = 'block';
+}
 
 let toastTimer = null;
 function showToast(msg) {
     const el = document.getElementById('toast');
-    el.textContent = msg; el.style.display = 'block';
+    el.textContent   = msg;
+    el.style.display = 'block';
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
@@ -1047,9 +1047,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadFloors();
     await loadSeats();
     await loadReservations();
-    buildFloorUI();
-    renderSeats();
-    renderTimelines();
+    buildFloorUI();       // ← 先にコンテナを作成
+    renderSeats();        // ← コンテナに描画
+    renderTimelines();    // ← コンテナに描画
     setInterval(async () => { await refreshData(); }, 60 * 1000);
     await connectSignalR();
 });
