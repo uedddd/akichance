@@ -293,7 +293,7 @@ def startup_event() -> None:
 # SignalR ネゴシエーション
 # ---------------------------------------------------------------------------
 
-@app.post("/api/negotiate")  # ✅ 修正: /api/negotiate/negotiate → /api/negotiate
+@app.post("/api/signalr/negotiate")
 async def negotiate():
     conn_str = os.getenv("SIGNALR_CONNECTION_STRING", "")
     hub_name = os.getenv("SIGNALR_HUB_NAME", "seatHub")
