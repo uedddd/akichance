@@ -3,926 +3,1154 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🏢 空きチャンス — 打合せ机 予約・使用状況</title>
+    <title>打合せ机 予約・使用状況システム</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+        body {
+            font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+            font-size: 14px; background: #f0f2f5; color: #333;
+        }
+        header {
+            background: linear-gradient(135deg, #1a3a5c, #2d6a9f);
+            color: white; padding: 0 24px; height: 56px;
+            display: flex; align-items: center; gap: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            position: sticky; top: 0; z-index: 100;
+        }
+        header .icon { font-size: 24px; }
+        header h1 { font-size: 17px; font-weight: 700; flex: 1; }
+        .conn-status { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+        .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #888; flex-shrink: 0; }
+        .conn-dot.connected    { background: #4CAF50; }
+        .conn-dot.disconnected { background: #F44336; }
+        .conn-dot.connecting   { background: #FF9800; }
 
-        .header { background: #1a1a2e; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
-        .header-title { font-size: 20px; font-weight: bold; }
-        .connection-status { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #888; }
-        .status-dot.connected    { background: #4CAF50; }
-        .status-dot.disconnected { background: #F44336; }
-        .status-dot.connecting   { background: #FF9800; }
+        .summary-bar {
+            background: white; padding: 10px 24px;
+            display: flex; gap: 20px; align-items: center;
+            border-bottom: 1px solid #e0e4ea; flex-wrap: wrap;
+        }
+        .summary-item { display: flex; flex-direction: column; align-items: center; min-width: 60px; }
+        .summary-item .num { font-size: 26px; font-weight: 800; line-height: 1; }
+        .summary-item .lbl { font-size: 11px; color: #888; margin-top: 2px; }
+        .summary-item.total    .num { color: #1a3a5c; }
+        .summary-item.vacant   .num { color: #27ae60; }
+        .summary-item.inuse    .num { color: #e74c3c; }
+        .summary-item.reserved .num { color: #f39c12; }
+        .summary-divider { width: 1px; height: 38px; background: #e0e4ea; }
+        .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .dot-vacant   { background: #27ae60; }
+        .dot-inuse    { background: #e74c3c; }
+        .dot-reserved { background: #f39c12; }
+        .floor-badge {
+            margin-left: auto; background: #e8f0fe; color: #2d6a9f;
+            font-size: 13px; font-weight: 700; border-radius: 8px;
+            padding: 4px 14px; border: 1.5px solid #c8d6e5;
+        }
 
-        .summary-bar { background: white; padding: 12px 24px; display: flex; gap: 24px; border-bottom: 1px solid #e0e0e0; flex-wrap: wrap; align-items: center; }
-        .summary-item { display: flex; align-items: center; gap: 8px; }
-        .summary-count { font-size: 24px; font-weight: bold; }
-        .summary-label { font-size: 13px; color: #666; }
-        .count-total { color: #1a1a2e; } .count-empty { color: #4CAF50; } .count-in-use { color: #F44336; } .count-reserved { color: #FF9800; }
+        .content-area { padding: 20px; }
+        .tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid #dde2ea; }
+        .tab-btn {
+            padding: 10px 20px; background: none; border: none;
+            font-size: 14px; color: #888; cursor: pointer;
+            border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s;
+        }
+        .tab-btn.active { color: #2d6a9f; border-bottom-color: #2d6a9f; font-weight: 600; }
+        .floor-panel { display: none; }
+        .floor-panel.active { display: block; }
 
-        .legend { background: white; padding: 10px 24px; display: flex; gap: 20px; border-bottom: 1px solid #e0e0e0; flex-wrap: wrap; align-items: center; }
-        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-        .legend-dot { width: 14px; height: 14px; border-radius: 3px; }
+        .map-area {
+            background: white; border-radius: 12px;
+            padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .section-title-row { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+        .section-title {
+            font-size: 16px; font-weight: 700; color: #1a3a5c;
+            display: flex; align-items: center; gap: 8px; white-space: nowrap;
+        }
+        .floor-select-inline {
+            appearance: none; -webkit-appearance: none;
+            background: white; border: 1.5px solid #c8d6e5;
+            border-radius: 8px; color: #1a3a5c; font-size: 14px; font-weight: 700;
+            padding: 5px 32px 5px 12px; cursor: pointer; outline: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231a3a5c' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 10px center;
+            min-width: 90px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .floor-select-inline:hover { border-color: #2d6a9f; }
+        .floor-select-inline:focus { border-color: #2d6a9f; box-shadow: 0 0 0 3px rgba(45,106,159,0.15); }
 
-        .tabs { background: white; padding: 0 24px; display: flex; border-bottom: 2px solid #e0e0e0; }
-        .tab-btn { padding: 14px 24px; border: none; background: none; font-size: 14px; font-weight: bold; color: #888; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color 0.2s, border-color 0.2s; }
-        .tab-btn.active { color: #1a1a2e; border-bottom-color: #1a1a2e; }
-        .tab-btn:hover { color: #1a1a2e; }
+        .floor-bg {
+            background: #f4f7fb; border: 2px solid #c8d6e5;
+            border-radius: 14px; padding: 20px; overflow-x: auto;
+        }
+        .floor-layout {
+            display: grid;
+            grid-template-columns: 100px 1fr 100px;
+            gap: 12px; align-items: start; min-width: 700px;
+        }
+        .conf-col { display: flex; flex-direction: column; gap: 8px; }
 
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        .main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+        .conf-card {
+            background: white; border: 2px solid #b0c4d8;
+            border-radius: 8px; padding: 8px 6px; cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            width: 90px; height: 115px;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+        .conf-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.13); }
+        .conf-card.vacant   { border-left: 4px solid #27ae60; }
+        .conf-card.inuse    { border-left: 4px solid #e74c3c; background: #fff8f8; }
+        .conf-card.reserved { border-left: 4px solid #f39c12; background: #fffbf2; }
 
-        .floor-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
-        .section-title { font-size: 18px; font-weight: bold; color: #1a1a2e; }
-        .floor-tabs { display: flex; gap: 8px; }
-        .floor-btn { padding: 8px 20px; border: 2px solid #1a1a2e; background: white; border-radius: 20px; font-size: 13px; font-weight: bold; color: #1a1a2e; cursor: pointer; transition: background 0.2s, color 0.2s; }
-        .floor-btn.active { background: #1a1a2e; color: white; }
-        .floor-btn:hover:not(.active) { background: #f0f2f5; }
+        .desk-main-area { display: flex; flex-direction: column; gap: 0; }
+        .desk-row {
+            display: flex; gap: 10px; flex-wrap: nowrap;
+            align-items: flex-end; padding: 6px 0; justify-content: center;
+        }
+        .middle-row { height: 250px; }
+        .free-row { display: flex; gap: 10px; padding: 6px 0; align-items: flex-start; }
+        .free-spacer { flex: 1; }
 
-        .floor-content { display: none; }
-        .floor-content.active { display: block; }
+        .spot { display: flex; flex-direction: column; align-items: stretch; flex-shrink: 0; }
+        .spot.filtered-out { display: none; }
 
-        .seats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+        .desk-card {
+            background: white; border: 2px solid #b0c4d8;
+            border-radius: 8px; padding: 8px 10px; cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+        .desk-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.13); }
+        .desk-card.vacant   { border-left: 4px solid #27ae60; }
+        .desk-card.inuse    { border-left: 4px solid #e74c3c; background: #fff8f8; }
+        .desk-card.reserved { border-left: 4px solid #f39c12; background: #fffbf2; }
+        .desk-card.cap-4   { width: 92px;  height: 130px; }
+        .desk-card.cap-6   { width: 136px; height: 130px; }
+        .desk-card.cap-8   { width: 180px; height: 130px; }
+        .desk-card.size-free { width: 80px; height: 110px; }
 
-        .seat-card { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 5px solid #ccc; transition: transform 0.2s, box-shadow 0.2s; }
-        .seat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
-        .seat-card.available { border-left-color: #4CAF50; }
-        .seat-card.in_use    { border-left-color: #F44336; }
-        .seat-card.reserved  { border-left-color: #FF9800; }
+        .card-name {
+            font-size: 10px; font-weight: 700; color: #1a3a5c;
+            margin-bottom: 2px; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+        }
+        .card-top { display: flex; flex-direction: column; gap: 3px; }
+        .desk-cap-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        .desk-cap { font-size: 14px; font-weight: 800; color: #1a3a5c; line-height: 1.1; }
+        .desk-status-row { display: flex; align-items: center; gap: 4px; }
+        .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .status-text { font-size: 10px; font-weight: 700; }
+        .s-vacant   { color: #27ae60; }
+        .s-inuse    { color: #e74c3c; }
+        .s-reserved { color: #f39c12; }
+        .card-detail {
+            font-size: 9px; color: #888; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; min-height: 11px;
+        }
+        .monitor-badge {
+            display: inline-flex; align-items: center;
+            font-size: 9px; font-weight: 600;
+            background: #e8f0fe; color: #2d6a9f;
+            border-radius: 3px; padding: 1px 4px;
+        }
+        .btn-reserve {
+            display: block; width: 100%; padding: 5px;
+            background: #2d6a9f; color: white; border: none;
+            border-radius: 4px; font-size: 10px; font-weight: 600;
+            cursor: pointer; transition: background 0.2s; flex-shrink: 0; margin-top: 4px;
+        }
+        .btn-reserve:hover { background: #1a3a5c; }
+        .btn-reserve.inuse   { background: #c62828; }
+        .btn-reserve.reserved { background: #e65100; }
+        .btn-cancel-card {
+            display: block; width: 100%; padding: 4px;
+            background: white; color: #e74c3c;
+            border: 1px solid #e74c3c; border-radius: 4px;
+            font-size: 9px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; margin-top: 3px;
+        }
+        .btn-cancel-card:hover { background: #e74c3c; color: white; }
+        .desk-card.size-free .btn-reserve { font-size: 9px; padding: 3px; margin-top: 3px; }
 
-        .seat-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
-        .seat-name { font-size: 15px; font-weight: bold; }
-        .seat-capacity { font-size: 12px; color: #888; background: #f0f2f5; padding: 2px 8px; border-radius: 10px; }
+        @keyframes flash { 0%{opacity:1;}50%{opacity:0.4;}100%{opacity:1;} }
+        .flashing { animation: flash 0.6s ease-in-out; }
 
-        .status-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; color: white; margin-bottom: 6px; }
-        .badge-available { background: #4CAF50; }
-        .badge-in_use    { background: #F44336; }
-        .badge-reserved  { background: #FF9800; }
-
-        .seat-detail  { font-size: 12px; color: #666; margin-bottom: 4px; min-height: 16px; }
-        .seat-monitor { font-size: 12px; color: #1976D2; margin-bottom: 10px; }
-
-        .reserve-btn { width: 100%; padding: 8px; border: 1px solid #1a1a2e; background: white; border-radius: 6px; font-size: 13px; font-weight: bold; color: #1a1a2e; cursor: pointer; transition: background 0.2s, color 0.2s; margin-top: 8px; }
-        .reserve-btn:hover { background: #1a1a2e; color: white; }
-
-        .cancel-btn { width: 100%; padding: 8px; border: 1px solid #F44336; background: white; border-radius: 6px; font-size: 13px; font-weight: bold; color: #F44336; cursor: pointer; transition: background 0.2s, color 0.2s; margin-top: 6px; }
-        .cancel-btn:hover { background: #F44336; color: white; }
-
-        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
-        .seat-card.updating { animation: flash 0.6s ease-in-out; }
-
-        .timeline-wrap { overflow-x: auto; }
-        .timeline-filter-bar { background: #f8f9fb; border: 1.5px solid #e0e4ea; border-radius: 10px; padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
-        .filter-bar-label { font-size: 12px; font-weight: bold; color: #5a7a9a; white-space: nowrap; }
+        .timeline-filter-bar {
+            background: #f8f9fb; border: 1.5px solid #e0e4ea;
+            border-radius: 10px; padding: 10px 16px;
+            display: flex; align-items: center; gap: 16px;
+            flex-wrap: wrap; margin-bottom: 20px;
+        }
+        .filter-bar-label { font-size: 12px; font-weight: 700; color: #5a7a9a; white-space: nowrap; }
         .filter-divider { width: 1px; height: 24px; background: #dde2ea; flex-shrink: 0; }
+        .filter-checkbox-wrap { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+        .filter-checkbox-wrap input[type="checkbox"] { width: 16px; height: 16px; accent-color: #2d6a9f; cursor: pointer; }
+        .filter-checkbox-wrap span { font-size: 13px; font-weight: 600; color: #1a3a5c; }
         .filter-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .filter-group-label { font-size: 13px; font-weight: 600; color: #1a3a5c; white-space: nowrap; }
-        .filter-checkbox-wrap { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
-        .filter-checkbox-wrap input { width: 16px; height: 16px; accent-color: #2d6a9f; cursor: pointer; }
-        .filter-checkbox-wrap span { font-size: 13px; font-weight: 600; color: #1a3a5c; }
-        .filter-active-badge { display: none; font-size: 11px; font-weight: bold; background: #2d6a9f; color: white; border-radius: 10px; padding: 2px 10px; }
-        .filter-active-badge.show { display: inline-block; }
-        .btn-filter-reset { display: none; font-size: 12px; font-weight: 600; color: #888; background: none; border: 1.5px solid #dde2ea; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
-        .btn-filter-reset.show { display: inline-block; }
+        .filter-active-badge {
+            visibility: hidden; font-size: 11px; font-weight: 700;
+            background: #2d6a9f; color: white; border-radius: 10px; padding: 2px 10px;
+        }
+        .filter-active-badge.show { visibility: visible; }
+        .btn-filter-reset {
+            font-size: 12px; font-weight: 600; color: #888;
+            background: none; border: 1.5px solid #dde2ea;
+            border-radius: 6px; padding: 4px 12px;
+            cursor: pointer; transition: all 0.2s; visibility: hidden;
+        }
+        .btn-filter-reset.show { visibility: visible; }
         .btn-filter-reset:hover { background: #f0f2f5; color: #555; }
-        .timeline-table { border-collapse: collapse; min-width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .tl-label-col { width: 160px; min-width: 160px; }
-        .tl-time-col  { width: 60px; min-width: 60px; }
-        .timeline-table thead th { background: #f0f2f5; padding: 10px 0; font-size: 12px; font-weight: bold; color: #666; text-align: center; border-right: 1px solid #e0e0e0; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
-        .timeline-table thead th.tl-label-col { text-align: left; padding-left: 12px; }
-        .tl-border-hour    { border-right: 2px solid #bbb !important; }
-        .tl-border-half    { border-right: 1px solid #ddd !important; }
-        .tl-border-quarter { border-right: 1px dashed #e8e8e8 !important; }
-        .timeline-table tbody tr { border-bottom: 1px solid #f0f2f5; }
-        .timeline-table tbody tr:last-child { border-bottom: none; }
-        .tl-label { padding: 0 10px; font-size: 13px; font-weight: bold; color: #333; border-right: 2px solid #e0e0e0; white-space: nowrap; height: 44px; vertical-align: middle; }
-        .tl-cell { position: relative; height: 44px; padding: 0; vertical-align: middle; }
-        .tl-block { position: absolute; top: 6px; bottom: 6px; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: bold; color: white; white-space: nowrap; overflow: hidden; z-index: 1; cursor: default; }
-        .tl-block.reserved { background: #FF9800; }
-        .tl-block.in_use   { background: #F44336; }
 
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-overlay.open { display: flex; }
-        .modal { background: white; border-radius: 16px; padding: 28px; width: 420px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-        .modal-title { font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #1a1a2e; }
+        .timeline-area {
+            background: white; border-radius: 12px;
+            padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow-x: auto;
+        }
+        .timeline-section-head {
+            font-size: 12px; font-weight: 700; color: #5a7a9a;
+            padding: 6px 0 4px; margin-top: 8px;
+            border-bottom: 1px solid #e0e4ea; margin-bottom: 4px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .timeline-header { display: flex; margin-bottom: 8px; margin-left: 160px; min-width: 580px; }
+        .timeline-hour { flex: 1; font-size: 11px; color: #aaa; text-align: left; min-width: 58px; }
+        .timeline-body { position: relative; min-width: 740px; }
+        .now-line {
+            position: absolute; top: 0; bottom: 0;
+            width: 2px; background: #e74c3c; z-index: 10; pointer-events: none; display: none;
+        }
+        .now-line::before {
+            content: ''; position: absolute; top: -5px; left: 50%; transform: translateX(-50%);
+            width: 8px; height: 8px; background: #e74c3c; border-radius: 50%;
+        }
+        .timeline-row { display: flex; align-items: center; margin-bottom: 8px; min-height: 34px; }
+        .timeline-row.filtered-out { display: none; }
+        .timeline-section-row { margin-top: 10px; }
+        .timeline-label {
+            width: 160px; font-size: 12px; color: #444; flex-shrink: 0;
+            padding-right: 10px; white-space: nowrap;
+        }
+        .timeline-track {
+            flex: 1; height: 22px; background: #f0f2f5;
+            border-radius: 4px; position: relative; min-width: 522px;
+        }
+        .timeline-block {
+            position: absolute; height: 100%; border-radius: 4px;
+            display: flex; align-items: center; padding: 0 6px;
+            font-size: 10px; font-weight: 600; color: white;
+            white-space: nowrap; overflow: hidden;
+        }
+        .block-inuse    { background: #e74c3c; }
+        .block-reserved { background: #f39c12; }
 
-        .form-group { margin-bottom: 16px; }
-        .form-label { display: block; font-size: 13px; font-weight: bold; color: #555; margin-bottom: 6px; }
-        .form-input, .form-select { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; color: #333; background: white; }
-        .form-input:focus, .form-select:focus { outline: none; border-color: #1a1a2e; }
-        .form-input[readonly] { background: #f0f2f5; color: #888; }
+        .form-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.4); z-index: 200;
+            justify-content: center; align-items: center;
+        }
+        .form-overlay.open { display: flex; }
+        .form-card {
+            background: white; border-radius: 14px;
+            padding: 28px 32px; width: 420px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 95vw;
+        }
+        .form-title { font-size: 17px; font-weight: 700; color: #1a3a5c; margin-bottom: 20px; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 600; color: #666; margin-bottom: 5px; }
+        .form-group input, .form-group select {
+            width: 100%; padding: 9px 12px; border: 1.5px solid #dde2ea;
+            border-radius: 8px; font-size: 14px; color: #333;
+        }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #2d6a9f; }
+        .form-group input[readonly] { background: #f0f2f5; color: #666; }
         .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .pw-hint { font-size: 11px; color: #f57c00; margin-top: 4px; }
+        .pw-hint { font-size: 10px; color: #f57c00; margin-top: 3px; }
+        .form-actions { display: flex; gap: 10px; margin-top: 18px; }
+        .btn-confirm {
+            flex: 1; padding: 11px; background: #2d6a9f; color: white;
+            border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer;
+        }
+        .btn-confirm:hover { background: #1a3a5c; }
+        .btn-cancel {
+            flex: 1; padding: 11px; background: #f0f2f5; color: #555;
+            border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        .btn-cancel:hover { background: #dde2ea; }
 
-        .modal-buttons { display: flex; gap: 12px; margin-top: 24px; }
-        .btn-confirm { flex: 1; padding: 12px; background: #1a1a2e; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
-        .btn-confirm:hover { background: #2d2d5e; }
-        .btn-cancel { flex: 1; padding: 12px; background: white; color: #333; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
-        .btn-cancel:hover { background: #f0f2f5; }
-
-        .confirm-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; }
+        .confirm-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.4); z-index: 300;
+            justify-content: center; align-items: center;
+        }
         .confirm-overlay.open { display: flex; }
-        .confirm-dialog { background: white; border-radius: 16px; padding: 28px; width: 380px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.2); text-align: center; }
-        .confirm-icon  { font-size: 40px; margin-bottom: 12px; }
-        .confirm-title { font-size: 16px; font-weight: bold; margin-bottom: 8px; color: #1a1a2e; }
-        .confirm-text  { font-size: 14px; color: #666; margin-bottom: 16px; }
-        .confirm-buttons { display: flex; gap: 12px; margin-top: 16px; }
-        .btn-danger { flex: 1; padding: 12px; background: #F44336; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; }
-        .btn-danger:hover { background: #d32f2f; }
+        .confirm-card {
+            background: white; border-radius: 14px;
+            padding: 28px 32px; width: 380px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 95vw; text-align: center;
+        }
+        .confirm-icon  { font-size: 36px; margin-bottom: 10px; }
+        .confirm-title { font-size: 16px; font-weight: 700; color: #1a3a5c; margin-bottom: 6px; }
+        .confirm-text  { font-size: 13px; color: #666; margin-bottom: 16px; }
+        .confirm-actions { display: flex; gap: 10px; margin-top: 16px; }
+        .btn-danger {
+            flex: 1; padding: 11px; background: #e74c3c; color: white;
+            border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer;
+        }
+        .btn-danger:hover { background: #c0392b; }
 
-        .loading { text-align: center; padding: 60px; color: #888; font-size: 16px; }
-        .error-message { background: #ffebee; border: 1px solid #F44336; border-radius: 8px; padding: 16px; color: #c62828; margin-bottom: 20px; }
-        .toast { position: fixed; bottom: 24px; right: 24px; background: #1a1a2e; color: white; padding: 14px 20px; border-radius: 10px; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 3000; display: none; animation: slideIn 0.3s ease; }
-        @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .loading-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(255,255,255,0.8); z-index: 400;
+            justify-content: center; align-items: center;
+            font-size: 16px; font-weight: 700; color: #1a3a5c;
+        }
+        .loading-overlay.open { display: flex; }
+
+        .toast {
+            position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(80px);
+            background: #1a3a5c; color: white; padding: 12px 28px;
+            border-radius: 10px; font-size: 14px; font-weight: 600;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 500;
+            opacity: 0; transition: all 0.35s cubic-bezier(.4,0,.2,1); pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     </style>
 </head>
 <body>
 
-<div class="header">
-    <div class="header-title">🏢 空きチャンス — 打合せ机 予約・使用状況</div>
-    <div class="connection-status">
-        <div class="status-dot" id="statusDot"></div>
-        <span id="statusText">接続中...</span>
+<header>
+    <span class="icon">🏢</span>
+    <h1>打合せ机 予約・使用状況システム</h1>
+    <div class="conn-status">
+        <div class="conn-dot" id="connDot"></div>
+        <span id="connText">接続中...</span>
     </div>
-</div>
+</header>
 
 <div class="summary-bar">
-    <div class="summary-item"><span class="summary-count count-total"    id="countTotal">-</span><span class="summary-label">総席数</span></div>
-    <div class="summary-item"><span class="summary-count count-empty"    id="countEmpty">-</span><span class="summary-label">空き</span></div>
-    <div class="summary-item"><span class="summary-count count-in-use"   id="countInUse">-</span><span class="summary-label">使用中</span></div>
-    <div class="summary-item"><span class="summary-count count-reserved" id="countReserved">-</span><span class="summary-label">予約済み</span></div>
+    <div class="summary-item total">
+        <span class="num" id="sumTotal">0</span>
+        <span class="lbl">総席数</span>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-item vacant">
+        <span class="num" id="sumVacant">0</span>
+        <span class="lbl">空き</span>
+    </div>
+    <div class="summary-item inuse">
+        <span class="num" id="sumInuse">0</span>
+        <span class="lbl">使用中</span>
+    </div>
+    <div class="summary-item reserved">
+        <span class="num" id="sumReserved">0</span>
+        <span class="lbl">予約済み</span>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="legend-item"><span class="legend-dot dot-vacant"></span>空き</div>
+    <div class="legend-item"><span class="legend-dot dot-inuse"></span>使用中</div>
+    <div class="legend-item"><span class="legend-dot dot-reserved"></span>予約済み</div>
+    <div class="legend-item">🖥️ モニター有</div>
+    <div class="floor-badge" id="floorBadge">4階 表示中</div>
 </div>
 
-<div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#4CAF50"></div><span>空き</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#F44336"></div><span>使用中</span></div>
-    <div class="legend-item"><div class="legend-dot" style="background:#FF9800"></div><span>予約済み</span></div>
-    <div class="legend-item" style="font-size:13px;color:#555;">🖥️ モニター有</div>
-</div>
-
-<div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('map')">🗺️ フロアマップ</button>
-    <button class="tab-btn"        onclick="switchTab('timeline')">📅 タイムライン</button>
-</div>
-
-<div class="tab-content active" id="tab-map">
-    <div class="main">
-        <div class="error-message" id="errorMessage" style="display:none;"></div>
-        <div class="loading" id="loadingMessage">⏳ データを読み込み中...</div>
-        <div id="floorMapArea" style="display:none;">
-            <div class="floor-header">
-                <div class="section-title">🗺️ フロアマップ —</div>
-                <div class="floor-tabs" id="mapFloorTabs"></div>
-            </div>
-            <div id="mapFloorContents"></div>
+<div class="content-area">
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="showTab('map')">🗺️ フロアマップ</button>
+        <button class="tab-btn"        onclick="showTab('timeline')">📅 タイムライン</button>
+    </div>
+    <div id="floorPanels">
+        <div class="loading-inline" id="initialLoading"
+             style="text-align:center;padding:60px;font-size:16px;color:#888;">
+            ⏳ データを読み込み中...
         </div>
     </div>
 </div>
 
-<div class="tab-content" id="tab-timeline">
-    <div class="main">
-        <div class="floor-header">
-            <div class="section-title">📅 タイムライン（9:00〜18:00）—</div>
-            <div class="floor-tabs" id="tlFloorTabs"></div>
-        </div>
-        <div id="tlFloorContents"></div>
-    </div>
-</div>
-
-<!-- 予約モーダル -->
-<div class="modal-overlay" id="modalOverlay">
-    <div class="modal">
-        <div class="modal-title">📝 予約フォーム</div>
+<!-- 予約フォーム -->
+<div class="form-overlay" id="formOverlay">
+    <div class="form-card">
+        <div class="form-title">📝 予約フォーム</div>
         <div class="form-group">
-            <label class="form-label">席名</label>
-            <input class="form-input" id="formSeatName" type="text" readonly>
+            <label>席名</label>
+            <input type="text" id="formDesk" readonly>
             <input type="hidden" id="formSeatId">
         </div>
         <div class="form-group">
-            <label class="form-label">予約者名</label>
-            <input class="form-input" id="formUserName" type="text" placeholder="例：田中 太郎">
+            <label>予約者名</label>
+            <input type="text" id="formName" placeholder="例：山田 太郎">
         </div>
         <div class="form-group">
-            <label class="form-label">メールアドレス</label>
-            <input class="form-input" id="formEmail" type="email" placeholder="例：tanaka@example.com">
+            <label>メールアドレス</label>
+            <input type="email" id="formEmail" placeholder="例：yamada@example.com">
         </div>
         <div class="form-row">
             <div class="form-group">
-                <label class="form-label">開始時間</label>
-                <select class="form-select" id="formStartTime">
-                    <option>9:00</option><option>9:30</option>
-                    <option>10:00</option><option>10:30</option>
-                    <option>11:00</option><option>11:30</option>
-                    <option>12:00</option><option>12:30</option>
-                    <option>13:00</option><option>13:30</option>
-                    <option>14:00</option><option>14:30</option>
-                    <option>15:00</option><option>15:30</option>
-                    <option>16:00</option><option>16:30</option>
-                    <option>17:00</option><option>17:30</option>
-                </select>
+                <label>開始時間</label>
+                <select id="formStart"></select>
             </div>
             <div class="form-group">
-                <label class="form-label">終了時間</label>
-                <select class="form-select" id="formEndTime">
-                    <option>9:30</option>
-                    <option>10:00</option><option>10:30</option>
-                    <option>11:00</option><option>11:30</option>
-                    <option>12:00</option><option>12:30</option>
-                    <option>13:00</option><option>13:30</option>
-                    <option>14:00</option><option>14:30</option>
-                    <option>15:00</option><option>15:30</option>
-                    <option>16:00</option><option>16:30</option>
-                    <option>17:00</option><option>17:30</option>
-                    <option>18:00</option>
-                </select>
+                <label>終了時間</label>
+                <select id="formEnd"></select>
             </div>
         </div>
-        <!-- ★追加：キャンセル用パスワード -->
         <div class="form-group">
-            <label class="form-label">キャンセル用パスワード（4桁の数字）</label>
-            <input class="form-input" id="formPassword" type="password"
-                   maxlength="4" inputmode="numeric" placeholder="例：1234">
-            <div class="pw-hint">⚠️ 予約キャンセル時に必要です。忘れないようにメモしてください。</div>
+            <label>キャンセル用パスワード（4桁）</label>
+            <input type="password" id="formPassword" maxlength="4" inputmode="numeric" placeholder="例：1234">
+            <div class="pw-hint">⚠️ キャンセル時に必要です。忘れずメモしてください。</div>
         </div>
-        <div class="modal-buttons">
+        <div class="form-actions">
             <button class="btn-confirm" onclick="submitReservation()">予約確定</button>
-            <button class="btn-cancel"  onclick="closeModal()">閉じる</button>
+            <button class="btn-cancel"  onclick="closeForm()">閉じる</button>
         </div>
     </div>
 </div>
 
-<!-- キャンセル確認ダイアログ -->
+<!-- キャンセル確認 -->
 <div class="confirm-overlay" id="confirmOverlay">
-    <div class="confirm-dialog">
+    <div class="confirm-card">
         <div class="confirm-icon">⚠️</div>
         <div class="confirm-title">予約をキャンセルしますか？</div>
         <div class="confirm-text" id="confirmText"></div>
-        <!-- ★追加：パスワード入力欄 -->
         <div class="form-group" style="text-align:left;">
-            <label class="form-label">パスワード（4桁の数字）</label>
-            <input class="form-input" id="cancelPassword" type="password"
-                   maxlength="4" inputmode="numeric" placeholder="予約時に設定したパスワード">
+            <label style="display:block;font-size:12px;font-weight:600;color:#666;margin-bottom:5px;">
+                パスワード（4桁）
+            </label>
+            <input type="password" id="cancelPassword" maxlength="4" inputmode="numeric"
+                   placeholder="予約時のパスワード"
+                   style="width:100%;padding:9px 12px;border:1.5px solid #dde2ea;border-radius:8px;font-size:14px;">
         </div>
-        <div class="confirm-buttons">
+        <div class="confirm-actions">
             <button class="btn-danger" onclick="executeCancel()">キャンセルする</button>
             <button class="btn-cancel" onclick="closeConfirm()">戻る</button>
         </div>
     </div>
 </div>
 
+<div class="loading-overlay" id="loadingOverlay">⏳ 処理中...</div>
 <div class="toast" id="toast"></div>
 
 <script>
-// ============================================================
-// 定数
-// ============================================================
-const API_BASE     = '';
-const TL_START_MIN = 9 * 60;
-const TL_END_MIN   = 18 * 60;
-const TL_UNIT_MIN  = 15;
-const TL_CELL_PX   = 60;
-const TL_SLOTS     = (TL_END_MIN - TL_START_MIN) / TL_UNIT_MIN;
-const timelineFilters = {};
+(function () {
+    'use strict';
 
-const STATUS_LABEL = {
-    available : '空き',
-    empty     : '空き',
-    in_use    : '使用中',
-    reserved  : '予約済み',
-    completed : '完了',
-    expired   : '期限切れ',
-    cancelled : 'キャンセル',
-};
-const STATUS_CLASS = {
-    available : 'available',
-    empty     : 'available',
-    in_use    : 'in_use',
-    reserved  : 'reserved',
-    completed : 'available',
-    expired   : 'available',
-    cancelled : 'available',
-};
+    const API_BASE     = '';
+    const START_HOUR   = 9;
+    const END_HOUR     = 18;
+    const TL_TOTAL_MIN = (END_HOUR - START_HOUR) * 60;
 
-// ============================================================
-// 状態管理
-// ============================================================
-let seatsData        = [];
-let reservationsData = [];
-let floorsData       = [];
+    const FLOOR_DEF = {
+        2: { label: '4階', floorNum: '4', deskPfx: '4-1', confPfx: '会議室04' },
+        3: { label: '5階', floorNum: '5', deskPfx: '5-1', confPfx: '会議室05' },
+        4: { label: '6階', floorNum: '6', deskPfx: '6-1', confPfx: '会議室06' },
+    };
 
-function nowMinutes() {
-    const d = new Date();
-    return d.getHours() * 60 + d.getMinutes();
-}
+    let seatsData        = [];
+    let reservationsData = [];
+    let floorsData       = [];
+    let currentFloor     = null;
+    let currentTab       = 'map';
+    let pendingCancelId  = null;
 
-// ============================================================
-// 表示用ステータス計算
-// ============================================================
-function getDisplayStatus(seat) {
-    const dbStatus = seat.status || 'empty';
-    if (dbStatus === 'in_use') return 'in_use';
-    const nowMin = nowMinutes();
-    const active = reservationsData.find(r =>
-        r.seat_id === seat.seat_id &&
-        r.status  === 'reserved' &&
-        timeToMinutesFromISO(r.start_datetime) <= nowMin &&
-        timeToMinutesFromISO(r.end_datetime)   >  nowMin
-    );
-    return active ? 'reserved' : 'available';
-}
-
-function getUpcomingReservation(seatId) {
-    const nowMin = nowMinutes();
-    const list = reservationsData
-        .filter(r =>
-            r.seat_id === seatId &&
-            r.status  === 'reserved' &&
-            timeToMinutesFromISO(r.end_datetime) > nowMin
-        )
-        .sort((a, b) =>
-            timeToMinutesFromISO(a.start_datetime) -
-            timeToMinutesFromISO(b.start_datetime)
-        );
-    return list.length > 0 ? list[0] : null;
-}
-
-// ============================================================
-// タブ・階切替
-// ============================================================
-function switchTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-        btn.classList.toggle('active', tab === 'map' ? i === 0 : i === 1);
+    // ============================================================
+    // 起動
+    // ============================================================
+    document.addEventListener('DOMContentLoaded', async () => {
+        buildTimeSelects();
+        await cleanupPast();
+        await loadAll();
+        buildUI();
+        updateSummary();
+        showTab('map');
+        setInterval(async () => { await refreshData(); }, 60000);
+        connectSignalR(); // ← SignalR接続は最後に実行
     });
-    document.getElementById('tab-map').classList.toggle('active',      tab === 'map');
-    document.getElementById('tab-timeline').classList.toggle('active', tab === 'timeline');
-}
 
-function switchFloor(prefix, floorId) {
-    document.querySelectorAll(`#${prefix}FloorTabs .floor-btn`).forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.floorId === String(floorId));
-    });
-    document.querySelectorAll(`#${prefix}FloorContents .floor-content`).forEach(el => {
-        el.classList.toggle('active', el.dataset.floorId === String(floorId));
-    });
-}
-
-// ============================================================
-// 集計バー
-// ============================================================
-function updateSummary() {
-    let empty = 0, inUse = 0, reserved = 0;
-    seatsData.forEach(seat => {
-        const ds = getDisplayStatus(seat);
-        if      (ds === 'in_use')   inUse++;
-        else if (ds === 'reserved') reserved++;
-        else                        empty++;
-    });
-    document.getElementById('countTotal').textContent    = seatsData.length;
-    document.getElementById('countEmpty').textContent    = empty;
-    document.getElementById('countInUse').textContent    = inUse;
-    document.getElementById('countReserved').textContent = reserved;
-}
-
-// ============================================================
-// フロアタブ動的生成
-// ============================================================
-function buildFloorTabs() {
-    ['map', 'tl'].forEach(prefix => {
-        const tabsEl     = document.getElementById(`${prefix}FloorTabs`);
-        const contentsEl = document.getElementById(`${prefix}FloorContents`);
-        tabsEl.innerHTML     = '';
-        contentsEl.innerHTML = '';
-
-        floorsData.forEach((floor, idx) => {
-            const btn = document.createElement('button');
-            btn.className       = 'floor-btn' + (idx === 0 ? ' active' : '');
-            btn.textContent     = floor.floor_name;
-            btn.dataset.floorId = floor.floor_id;
-            btn.onclick         = () => switchFloor(prefix, floor.floor_id);
-            tabsEl.appendChild(btn);
-
-            const div = document.createElement('div');
-            div.className       = 'floor-content' + (idx === 0 ? ' active' : '');
-            div.dataset.floorId = floor.floor_id;
-            div.id              = `${prefix}-floor-${floor.floor_id}`;
-            div.innerHTML       = prefix === 'map'
-                ? `<div class="seats-grid" id="seatsGrid-${floor.floor_id}"></div>`
-                : `<div class="timeline-wrap" id="timelineWrap-${floor.floor_id}"></div>`;
-            contentsEl.appendChild(div);
-        });
-    });
-}
-
-// ============================================================
-// フロアマップ描画
-// ============================================================
-function createSeatCardHTML(seat) {
-    const displayStatus = getDisplayStatus(seat);
-    const statusLabel   = STATUS_LABEL[displayStatus] || displayStatus;
-    const statusClass   = STATUS_CLASS[displayStatus] || 'available';
-    const upcoming      = getUpcomingReservation(seat.seat_id);
-
-    let detailText = '本日空き';
-    if (displayStatus === 'reserved' && upcoming) {
-        detailText = `${formatTime(upcoming.start_datetime)}〜${formatTime(upcoming.end_datetime)}`;
-    } else if (displayStatus === 'in_use') {
-        detailText = '現在使用中';
-    } else if (upcoming) {
-        detailText = `次: ${formatTime(upcoming.start_datetime)}〜${formatTime(upcoming.end_datetime)}`;
+    // ============================================================
+    // データ取得
+    // ============================================================
+    async function cleanupPast() {
+        try { await fetch(`${API_BASE}/api/reservations/cleanup`, { method: 'DELETE' }); } catch(e) {}
     }
 
-    const capacityHtml = seat.capacity
-        ? `<span class="seat-capacity">${seat.capacity}名</span>` : '';
-    const monitorHtml = seat.has_monitor
-        ? `<div class="seat-monitor">🖥️ モニター有</div>` : '';
+    async function loadAll() {
+        await Promise.all([loadFloors(), loadSeats(), loadReservations()]);
+    }
 
-    // ★修正：reservation_id の null チェックを追加
-    const cancelBtnHtml = (upcoming && upcoming.reservation_id)
-        ? `<button class="cancel-btn"
-               onclick="openConfirm(${upcoming.reservation_id},
-               '${seat.seat_name.replace(/'/g, "\\'")}',
-               '${formatTime(upcoming.start_datetime)}〜${formatTime(upcoming.end_datetime)}')">
-               予約キャンセル
-           </button>`
-        : '';
+    async function loadFloors() {
+        try {
+            const r = await fetch(`${API_BASE}/api/floors`);
+            floorsData = await r.json();
+        } catch(e) { floorsData = []; }
+    }
 
-    return `
-        <div class="seat-card ${statusClass}"
-             id="seat-card-${seat.seat_id}"
-             data-seat-id="${seat.seat_id}">
-            <div class="seat-card-header">
-                <div class="seat-name">${seat.seat_name}</div>
-                ${capacityHtml}
-            </div>
-            <span class="status-badge badge-${statusClass}">${statusLabel}</span>
-            <div class="seat-detail">${detailText}</div>
-            ${monitorHtml}
-            <button class="reserve-btn"
-                    onclick="openModal(${seat.seat_id}, '${seat.seat_name.replace(/'/g, "\\'")}')">
-                予約する
-            </button>
-            ${cancelBtnHtml}
-        </div>
-    `;
-}
+    async function loadSeats() {
+        try {
+            const r = await fetch(`${API_BASE}/api/seats`);
+            seatsData = await r.json();
+        } catch(e) { seatsData = []; }
+    }
 
-function renderSeats() {
-    floorsData.forEach(floor => {
-        const grid = document.getElementById(`seatsGrid-${floor.floor_id}`);
-        if (!grid) return;
-        const floorSeats = seatsData.filter(s => s.floor_id === floor.floor_id);
-        grid.innerHTML = floorSeats.length > 0
-            ? floorSeats.map(createSeatCardHTML).join('')
-            : '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
-    });
-    document.getElementById('loadingMessage').style.display = 'none';
-    document.getElementById('floorMapArea').style.display   = 'block';
-    updateSummary();
-}
+    async function loadReservations() {
+        try {
+            const r = await fetch(`${API_BASE}/api/reservations`);
+            reservationsData = await r.json();
+        } catch(e) { reservationsData = []; }
+    }
 
-// ============================================================
-// タイムライン描画
-// ============================================================
-function renderTimelines() {
-    floorsData.forEach(floor => {
-        const wrap = document.getElementById(`timelineWrap-${floor.floor_id}`);
-        if (!wrap) return;
+    async function refreshData() {
+        await loadSeats();
+        await loadReservations();
+        rebuildCards();
+        rebuildTimelines();
+        updateSummary();
+    }
 
-        const floorSeats = seatsData.filter(s => s.floor_id === floor.floor_id);
-        if (floorSeats.length === 0) {
-            wrap.innerHTML = '<div style="color:#888;padding:20px;">この階の席データがありません</div>';
+    // ============================================================
+    // ステータス計算
+    // ============================================================
+    function nowMin() {
+        const d = new Date();
+        return d.getHours() * 60 + d.getMinutes();
+    }
+
+    function isoToMin(iso) {
+        if (!iso) return 0;
+        const d = new Date(iso);
+        return d.getHours() * 60 + d.getMinutes();
+    }
+
+    function getStatus(seat) {
+        if ((seat.status || 'empty') === 'in_use') return 'inuse';
+        const nm = nowMin();
+        const active = reservationsData.find(r =>
+            r.seat_id === seat.seat_id && r.status === 'reserved' &&
+            isoToMin(r.start_datetime) <= nm && isoToMin(r.end_datetime) > nm
+        );
+        return active ? 'reserved' : 'vacant';
+    }
+
+    function getUpcoming(seatId) {
+        const nm = nowMin();
+        return reservationsData
+            .filter(r => r.seat_id === seatId && r.status === 'reserved' && isoToMin(r.end_datetime) > nm)
+            .sort((a, b) => isoToMin(a.start_datetime) - isoToMin(b.start_datetime))[0] || null;
+    }
+
+    function fmtTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    // ============================================================
+    // UI構築（初回）
+    // ============================================================
+    function buildUI() {
+        const container = document.getElementById('floorPanels');
+        document.getElementById('initialLoading').remove();
+
+        const targetFloors = floorsData.filter(f => f.floor_id !== 1);
+        if (targetFloors.length === 0) {
+            container.innerHTML = '<div style="padding:40px;color:#888;text-align:center;">フロアデータがありません</div>';
             return;
         }
 
-        const filter = timelineFilters[floor.floor_id] || { types: [], monitor: false, caps: [] };
-        const filterHtml = `
+        currentFloor = targetFloors[0].floor_id;
+
+        targetFloors.forEach((floor, idx) => {
+            const def = FLOOR_DEF[floor.floor_id];
+            if (!def) return;
+            const panel = document.createElement('div');
+            panel.className       = 'floor-panel' + (idx === 0 ? ' active' : '');
+            panel.id              = `floor-${floor.floor_id}`;
+            panel.dataset.floorId = floor.floor_id;
+            panel.innerHTML = buildPanelHTML(floor, def, targetFloors);
+            container.appendChild(panel);
+        });
+
+        document.getElementById('floorBadge').textContent =
+            (FLOOR_DEF[currentFloor]?.label || currentFloor) + ' 表示中';
+    }
+
+    function buildPanelHTML(floor, def, allFloors) {
+        const selectOpts = allFloors.map(f => {
+            const d = FLOOR_DEF[f.floor_id];
+            const sel = f.floor_id === floor.floor_id ? ' selected' : '';
+            return `<option value="${f.floor_id}"${sel}>${d?.label || f.floor_name}</option>`;
+        }).join('');
+
+        return `
+            <div id="map-${floor.floor_id}" class="map-area">
+                <div class="section-title-row">
+                    <div class="section-title">🗺️ フロアマップ —</div>
+                    <select class="floor-select-inline" onchange="switchFloor(this.value)">${selectOpts}</select>
+                </div>
+                <div class="floor-bg">
+                    <div class="floor-layout" id="floorLayout-${floor.floor_id}">
+                        ${buildMapHTML(floor.floor_id, def)}
+                    </div>
+                </div>
+            </div>
+            <div id="timeline-${floor.floor_id}" class="timeline-area" style="display:none;">
+                <div class="section-title-row">
+                    <div class="section-title">📅 タイムライン（9:00〜18:00）—</div>
+                    <select class="floor-select-inline" onchange="switchFloor(this.value)">${selectOpts}</select>
+                </div>
+                ${buildFilterBarHTML(floor.floor_id)}
+                <div class="timeline-header">
+                    ${[9,10,11,12,13,14,15,16,17,18].map(h=>`<div class="timeline-hour">${h}:00</div>`).join('')}
+                </div>
+                <div class="timeline-body" id="tbody-${floor.floor_id}">
+                    <div class="now-line" id="nowline-${floor.floor_id}"></div>
+                    <div id="tlRows-${floor.floor_id}">
+                        ${buildTimelineRowsHTML(floor.floor_id)}
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function buildMapHTML(floorId, def) {
+        const seats     = seatsData.filter(s => s.floor_id === floorId);
+        const confSeats = seats.filter(s => s.seat_type === 'conf').sort((a,b)=>a.seat_name.localeCompare(b.seat_name, 'ja'));
+        const deskSeats = seats.filter(s => s.seat_type === 'desk').sort((a,b)=>a.seat_name.localeCompare(b.seat_name, 'ja'));
+        const freeSeats = seats.filter(s => s.seat_type === 'free').sort((a,b)=>a.seat_name.localeCompare(b.seat_name, 'ja'));
+
+        const leftConf  = confSeats.slice(0, 3);
+        const rightConf = confSeats.slice(3, 6);
+        const topDesk   = deskSeats.slice(0, 6);
+        const botDesk   = deskSeats.slice(6, 12);
+        const leftFree  = freeSeats.slice(0, 2);
+        const rightFree = freeSeats.slice(2);
+
+        return `
+            <div class="conf-col">${leftConf.map(s => confCardHTML(s)).join('')}</div>
+            <div class="desk-main-area">
+                <div class="desk-row">${topDesk.map(s => deskSpotHTML(s)).join('')}</div>
+                <div class="middle-row"></div>
+                <div class="desk-row">${botDesk.map(s => deskSpotHTML(s)).join('')}</div>
+                <div class="free-row">
+                    ${leftFree.map(s => freeSpotHTML(s)).join('')}
+                    <div class="free-spacer"></div>
+                    ${rightFree.map(s => freeSpotHTML(s)).join('')}
+                </div>
+            </div>
+            <div class="conf-col">${rightConf.map(s => confCardHTML(s)).join('')}</div>`;
+    }
+
+    function confCardHTML(seat) {
+        const st      = getStatus(seat);
+        const upcoming = getUpcoming(seat.seat_id);
+        const detail  = detailText(seat, st, upcoming);
+        const dotCol  = stColor(st);
+        const stLabel = stText(st);
+        return `
+            <div class="conf-card ${st}" id="card-${seat.seat_id}" data-seat-id="${seat.seat_id}">
+                <div class="card-top">
+                    <div class="card-name">${seat.seat_name}</div>
+                    <div class="desk-cap-row"><div class="desk-cap">${seat.capacity||''}名</div></div>
+                    <div class="desk-status-row">
+                        <span class="status-dot" style="background:${dotCol}"></span>
+                        <span class="status-text s-${st}">${stLabel}</span>
+                    </div>
+                    <div class="card-detail">${detail}</div>
+                </div>
+                <div>
+                    <button class="btn-reserve ${st}"
+                        onclick="openForm(${seat.seat_id},'${esc(seat.seat_name)}')">予約する</button>
+                    ${cancelBtnHTML(upcoming, seat)}
+                </div>
+            </div>`;
+    }
+
+    function deskSpotHTML(seat) {
+        const st      = getStatus(seat);
+        const upcoming = getUpcoming(seat.seat_id);
+        const detail  = detailText(seat, st, upcoming);
+        const dotCol  = stColor(st);
+        const stLabel = stText(st);
+        const capClass = capToClass(seat.capacity);
+        const monBadge = seat.has_monitor ? `<span class="monitor-badge">🖥️ モニター有</span>` : '';
+        return `
+            <div class="spot" data-type="desk" data-capacity="${seat.capacity||''}" data-monitor="${!!seat.has_monitor}">
+                <div class="desk-card ${capClass} ${st}" id="card-${seat.seat_id}" data-seat-id="${seat.seat_id}">
+                    <div class="card-top">
+                        <div class="card-name">${seat.seat_name}</div>
+                        <div class="desk-cap-row">
+                            <div class="desk-cap">${seat.capacity||''}名</div>${monBadge}
+                        </div>
+                        <div class="desk-status-row">
+                            <span class="status-dot" style="background:${dotCol}"></span>
+                            <span class="status-text s-${st}">${stLabel}</span>
+                        </div>
+                        <div class="card-detail">${detail}</div>
+                    </div>
+                    <div>
+                        <button class="btn-reserve ${st}"
+                            onclick="openForm(${seat.seat_id},'${esc(seat.seat_name)}')">予約する</button>
+                        ${cancelBtnHTML(upcoming, seat)}
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function freeSpotHTML(seat) {
+        const st      = getStatus(seat);
+        const dotCol  = stColor(st);
+        const stLabel = stText(st);
+        return `
+            <div class="spot" data-type="free">
+                <div class="desk-card size-free ${st}" id="card-${seat.seat_id}" data-seat-id="${seat.seat_id}">
+                    <div class="card-top">
+                        <div class="card-name">${seat.seat_name}</div>
+                        <div class="desk-status-row">
+                            <span class="status-dot" style="background:${dotCol}"></span>
+                            <span class="status-text s-${st}">${stLabel}</span>
+                        </div>
+                    </div>
+                    <button class="btn-reserve ${st}"
+                        onclick="openForm(${seat.seat_id},'${esc(seat.seat_name)}')">使用する</button>
+                </div>
+            </div>`;
+    }
+
+    function cancelBtnHTML(upcoming, seat) {
+        if (!upcoming || !upcoming.reservation_id) return '';
+        const t = `${fmtTime(upcoming.start_datetime)}〜${fmtTime(upcoming.end_datetime)}`;
+        return `<button class="btn-cancel-card"
+            onclick="openConfirm(${upcoming.reservation_id},'${esc(seat.seat_name)}','${t}')">キャンセル</button>`;
+    }
+
+    function detailText(seat, st, upcoming) {
+        if (st === 'inuse')    return '現在使用中';
+        if (st === 'reserved' && upcoming)
+            return `${fmtTime(upcoming.start_datetime)}〜${fmtTime(upcoming.end_datetime)}`;
+        if (upcoming) return `次: ${fmtTime(upcoming.start_datetime)}〜`;
+        return '本日空き';
+    }
+
+    function buildTimelineRowsHTML(floorId) {
+        const seats     = seatsData.filter(s => s.floor_id === floorId);
+        const deskSeats = seats.filter(s => s.seat_type === 'desk').sort((a,b)=>a.seat_name.localeCompare(b.seat_name,'ja'));
+        const confSeats = seats.filter(s => s.seat_type === 'conf').sort((a,b)=>a.seat_name.localeCompare(b.seat_name,'ja'));
+        const freeSeats = seats.filter(s => s.seat_type === 'free').sort((a,b)=>a.seat_name.localeCompare(b.seat_name,'ja'));
+
+        let html = '';
+        if (deskSeats.length) {
+            html += `<div class="timeline-row timeline-section-row" data-type="section-desk">
+                         <div class="timeline-section-head" style="width:100%">📋 打合せ机</div></div>`;
+            html += deskSeats.map(s => tlRowHTML(s, 'desk')).join('');
+        }
+        if (confSeats.length) {
+            html += `<div class="timeline-row timeline-section-row" data-type="section-conf">
+                         <div class="timeline-section-head" style="width:100%">🚪 会議室</div></div>`;
+            html += confSeats.map(s => tlRowHTML(s, 'conf')).join('');
+        }
+        if (freeSeats.length) {
+            html += `<div class="timeline-row timeline-section-row" data-type="section-free">
+                         <div class="timeline-section-head" style="width:100%">🪑 フリー</div></div>`;
+            html += freeSeats.map(s => tlRowHTML(s, 'free')).join('');
+        }
+        return html;
+    }
+
+    function tlRowHTML(seat, type) {
+        const mon = seat.has_monitor ? ' 🖥️' : '';
+        const capStr = seat.capacity ? `（${seat.capacity}名）` : '';
+        const label  = `${seat.seat_name}${capStr}${mon}`;
+        const blocks = tlBlocksHTML(seat);
+        return `
+            <div class="timeline-row" data-type="${type}"
+                 data-capacity="${seat.capacity||''}"
+                 data-monitor="${!!seat.has_monitor}"
+                 data-seat-id="${seat.seat_id}">
+                <div class="timeline-label">${label}</div>
+                <div class="timeline-track">${blocks}</div>
+            </div>`;
+    }
+
+    function tlBlocksHTML(seat) {
+        const rsvs = reservationsData.filter(r =>
+            r.seat_id === seat.seat_id && ['reserved','in_use'].includes(r.status)
+        );
+        return rsvs.map(r => {
+            const startM  = Math.max(isoToMin(r.start_datetime), START_HOUR * 60) - START_HOUR * 60;
+            const endM    = Math.min(isoToMin(r.end_datetime),   END_HOUR   * 60) - START_HOUR * 60;
+            if (endM <= 0 || startM >= TL_TOTAL_MIN) return '';
+            const left  = (startM / TL_TOTAL_MIN * 100).toFixed(2);
+            const width = ((endM - startM) / TL_TOTAL_MIN * 100).toFixed(2);
+            const cls   = r.status === 'in_use' ? 'block-inuse' : 'block-reserved';
+            const tip   = `${fmtTime(r.start_datetime)}〜${fmtTime(r.end_datetime)}`;
+            return `<div class="timeline-block ${cls}" style="left:${left}%;width:${width}%"
+                        title="${tip}">${tip}</div>`;
+        }).join('');
+    }
+
+    function buildFilterBarHTML(floorId) {
+        return `
             <div class="timeline-filter-bar">
                 <span class="filter-bar-label">🔍 絞り込み</span>
                 <div class="filter-divider"></div>
                 <div class="filter-group">
                     <span class="filter-group-label">種別：</span>
-                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-type-filter" value="desk"><span>打合せ机</span></label>
-                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-type-filter" value="conf"><span>会議室</span></label>
-                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-type-filter" value="free"><span>フリー</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-type" value="desk" onchange="applyFilter(${floorId})"><span>打合せ机</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-type" value="conf" onchange="applyFilter(${floorId})"><span>会議室</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-type" value="free" onchange="applyFilter(${floorId})"><span>フリー</span></label>
                 </div>
                 <div class="filter-divider"></div>
-                <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-monitor-filter"><span>🖥️ モニターあり</span></label>
+                <label class="filter-checkbox-wrap">
+                    <input type="checkbox" class="filter-monitor" onchange="applyFilter(${floorId})">
+                    <span>🖥️ モニターあり</span>
+                </label>
                 <div class="filter-divider"></div>
                 <div class="filter-group">
                     <span class="filter-group-label">👥 人数：</span>
-                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-cap-filter" value="4"><span>4名</span></label>
-                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-cap-filter" value="6"><span>6名</span></label>
-                    <label class="filter-checkbox-wrap"><input type="checkbox" class="timeline-cap-filter" value="8"><span>8名</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-cap" value="4" onchange="applyFilter(${floorId})"><span>4名</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-cap" value="6" onchange="applyFilter(${floorId})"><span>6名</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-cap" value="8" onchange="applyFilter(${floorId})"><span>8名</span></label>
                 </div>
                 <div class="filter-divider"></div>
-                <span class="filter-active-badge">フィルター適用中</span>
-                <button class="btn-filter-reset" type="button">✕ リセット</button>
+                <span class="filter-active-badge" id="badge-${floorId}">フィルター適用中</span>
+                <button class="btn-filter-reset" id="reset-${floorId}" onclick="applyFilterReset(${floorId})">✕ リセット</button>
             </div>`;
+    }
 
-        let headerCells = `<th class="tl-label-col">席名</th>`;
-        for (let i = 0; i < TL_SLOTS; i++) {
-            const absMin      = TL_START_MIN + i * TL_UNIT_MIN;
-            const isHour      = absMin % 60 === 0;
-            const isHalf      = absMin % 30 === 0 && !isHour;
-            const borderClass = isHour ? 'tl-border-hour' : isHalf ? 'tl-border-half' : 'tl-border-quarter';
-            const label       = isHour ? `${Math.floor(absMin / 60)}:00` : '';
-            headerCells += `<th class="tl-time-col ${borderClass}">${label}</th>`;
-        }
+    function rebuildCards() {
+        floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
+            const def    = FLOOR_DEF[floor.floor_id];
+            const layout = document.getElementById(`floorLayout-${floor.floor_id}`);
+            if (!def || !layout) return;
+            layout.innerHTML = buildMapHTML(floor.floor_id, def);
+        });
+    }
 
-        const rows = floorSeats.map(seat => {
-            const monitorIcon      = seat.has_monitor ? ' 🖥️' : '';
-            const seatReservations = reservationsData.filter(r =>
-                r.seat_id === seat.seat_id &&
-                ['reserved', 'in_use'].includes(r.status)
-            );
+    function rebuildTimelines() {
+        floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
+            const el = document.getElementById(`tlRows-${floor.floor_id}`);
+            if (!el) return;
+            el.innerHTML = buildTimelineRowsHTML(floor.floor_id);
+            applyFilter(floor.floor_id);
+        });
+    }
 
-            let cells = `<td class="tl-label">${seat.seat_name}${monitorIcon}</td>`;
-            const usedSlots = new Set();
+    function updateSummary() {
+        let total = 0, vacant = 0, inuse = 0, reserved = 0;
+        seatsData.forEach(s => {
+            total++;
+            const st = getStatus(s);
+            if (st === 'vacant')        vacant++;
+            else if (st === 'inuse')    inuse++;
+            else if (st === 'reserved') reserved++;
+        });
+        document.getElementById('sumTotal').textContent    = total;
+        document.getElementById('sumVacant').textContent   = vacant;
+        document.getElementById('sumInuse').textContent    = inuse;
+        document.getElementById('sumReserved').textContent = reserved;
+    }
 
-            for (let i = 0; i < TL_SLOTS; i++) {
-                const slotStart = TL_START_MIN + i * TL_UNIT_MIN;
-                const slotEnd   = slotStart + TL_UNIT_MIN;
-                const isHour    = slotStart % 60 === 0;
-                const isHalf    = slotStart % 30 === 0 && !isHour;
-                const borderCls = isHour ? 'tl-border-hour' : isHalf ? 'tl-border-half' : 'tl-border-quarter';
-
-                if (usedSlots.has(i)) {
-                    cells += `<td class="tl-cell ${borderCls}"></td>`;
-                    continue;
-                }
-
-                const reservation = seatReservations.find(r => {
-                    const rStart = isoToAbsMin(r.start_datetime);
-                    return rStart >= slotStart && rStart < slotEnd;
-                });
-
-                if (reservation) {
-                    const rStart     = isoToAbsMin(reservation.start_datetime);
-                    const rEnd       = isoToAbsMin(reservation.end_datetime);
-                    const clampStart = Math.max(rStart, TL_START_MIN);
-                    const clampEnd   = Math.min(rEnd,   TL_END_MIN);
-                    const duration   = clampEnd - clampStart;
-                    const blockWidth = (duration / TL_UNIT_MIN) * TL_CELL_PX;
-                    const offsetPx   = ((clampStart - slotStart) / TL_UNIT_MIN) * TL_CELL_PX;
-                    const spanSlots  = Math.ceil(duration / TL_UNIT_MIN);
-                    for (let j = i + 1; j < i + spanSlots; j++) usedSlots.add(j);
-
-                    const blockClass = reservation.status === 'in_use' ? 'in_use' : 'reserved';
-                    const timeLabel  = `${formatTime(reservation.start_datetime)}〜${formatTime(reservation.end_datetime)}`;
-
-                    cells += `
-                        <td class="tl-cell ${borderCls}" style="position:relative;overflow:visible;">
-                            <div class="tl-block ${blockClass}"
-                                 style="left:${offsetPx}px;width:${blockWidth}px;"
-                                 title="${timeLabel}">
-                                ${timeLabel}
-                            </div>
-                        </td>`;
-                } else {
-                    cells += `<td class="tl-cell ${borderCls}"></td>`;
-                }
-            }
-            return `<tr data-seat-type="${seat.seat_type}" data-capacity="${seat.capacity || ''}" data-monitor="${seat.has_monitor}">${cells}</tr>`;
-        }).join('');
-
-        wrap.innerHTML = `
-            ${filterHtml}
-            <table class="timeline-table">
-                <thead><tr>${headerCells}</tr></thead>
-                <tbody>${rows}</tbody>
-            </table>`;
-
-        const typeFilters = wrap.querySelectorAll('.timeline-type-filter');
-        typeFilters.forEach(input => { input.checked = filter.types.includes(input.value); });
-        wrap.querySelector('.timeline-monitor-filter').checked = filter.monitor;
-        wrap.querySelectorAll('.timeline-cap-filter').forEach(input => { input.checked = filter.caps.includes(Number(input.value)); });
-        typeFilters.forEach(input => input.addEventListener('change', () => applyTimelineFilter(floor.floor_id)));
-        wrap.querySelector('.timeline-monitor-filter').addEventListener('change', () => applyTimelineFilter(floor.floor_id));
-        wrap.querySelectorAll('.timeline-cap-filter').forEach(input => input.addEventListener('change', () => applyTimelineFilter(floor.floor_id)));
-        wrap.querySelector('.btn-filter-reset').addEventListener('click', () => resetTimelineFilter(floor.floor_id));
-        applyTimelineFilter(floor.floor_id);
-    });
-}
-
-function applyTimelineFilter(floorId) {
-    const wrap = document.getElementById(`timelineWrap-${floorId}`);
-    if (!wrap) return;
-
-    const types = [...wrap.querySelectorAll('.timeline-type-filter:checked')].map(input => input.value);
-    const monitor = wrap.querySelector('.timeline-monitor-filter').checked;
-    const caps = [...wrap.querySelectorAll('.timeline-cap-filter:checked')].map(input => Number(input.value));
-    timelineFilters[floorId] = { types, monitor, caps };
-    const isActive = types.length > 0 || monitor || caps.length > 0;
-
-    wrap.querySelector('.filter-active-badge').classList.toggle('show', isActive);
-    wrap.querySelector('.btn-filter-reset').classList.toggle('show', isActive);
-    wrap.querySelectorAll('tbody tr').forEach(row => {
-        const passType = types.length === 0 || types.includes(row.dataset.seatType);
-        const isMonitorTarget = ['desk', 'conf'].includes(row.dataset.seatType);
-        const passMonitor = !monitor || (isMonitorTarget && row.dataset.monitor === 'true');
-        const capacity = row.dataset.capacity ? Number(row.dataset.capacity) : null;
-        const passCapacity = caps.length === 0 || row.dataset.seatType !== 'desk' || (capacity !== null && caps.includes(capacity));
-        row.style.display = passType && passMonitor && passCapacity ? '' : 'none';
-    });
-}
-
-function resetTimelineFilter(floorId) {
-    timelineFilters[floorId] = { types: [], monitor: false, caps: [] };
-    const wrap = document.getElementById(`timelineWrap-${floorId}`);
-    if (!wrap) return;
-    wrap.querySelectorAll('input').forEach(input => { input.checked = false; });
-    applyTimelineFilter(floorId);
-}
-
-// ============================================================
-// 予約モーダル
-// ============================================================
-function openModal(seatId, seatName) {
-    document.getElementById('formSeatId').value   = seatId;
-    document.getElementById('formSeatName').value = seatName;
-    document.getElementById('formUserName').value = '';
-    document.getElementById('formEmail').value    = '';
-    document.getElementById('formPassword').value = ''; // ★追加
-    document.getElementById('modalOverlay').classList.add('open');
-}
-
-function closeModal() {
-    document.getElementById('modalOverlay').classList.remove('open');
-}
-
-document.getElementById('modalOverlay').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-});
-
-// ★修正：パスワードバリデーション・payload に password 追加
-async function submitReservation() {
-    const seatId    = document.getElementById('formSeatId').value;
-    const userName  = document.getElementById('formUserName').value.trim();
-    const email     = document.getElementById('formEmail').value.trim();
-    const password  = document.getElementById('formPassword').value.trim();
-    const startTime = document.getElementById('formStartTime').value;
-    const endTime   = document.getElementById('formEndTime').value;
-
-    if (!userName)                  { showToast('⚠️ 予約者名を入力してください');               return; }
-    if (!email)                     { showToast('⚠️ メールアドレスを入力してください');           return; }
-    if (!/^\d{4}$/.test(password))  { showToast('⚠️ パスワードは4桁の数字で入力してください');   return; }
-
-    const today = new Date().toISOString().split('T')[0];
-    const payload = {
-        user_id        : 1,
-        seat_id        : parseInt(seatId),
-        start_datetime : `${today}T${toHHMM(startTime)}:00`,
-        end_datetime   : `${today}T${toHHMM(endTime)}:00`,
-        status         : 'reserved',
-        password       : password,  // ★追加
+    window.switchFloor = function(floorId) {
+        floorId = Number(floorId);
+        currentFloor = floorId;
+        document.querySelectorAll('.floor-panel').forEach(el => {
+            el.classList.toggle('active', Number(el.dataset.floorId) === floorId);
+        });
+        document.querySelectorAll('.floor-select-inline').forEach(sel => {
+            sel.value = floorId;
+        });
+        const def = FLOOR_DEF[floorId];
+        document.getElementById('floorBadge').textContent =
+            (def?.label || floorId) + ' 表示中';
+        showTab(currentTab);
     };
 
-    try {
-        const res = await fetch(`${API_BASE}/api/reservations`, {
-            method  : 'POST',
-            headers : { 'Content-Type': 'application/json' },
-            body    : JSON.stringify(payload),
+    window.showTab = function(tab) {
+        currentTab = tab;
+        floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
+            const show = floor.floor_id === currentFloor;
+            const mapEl = document.getElementById(`map-${floor.floor_id}`);
+            const tlEl  = document.getElementById(`timeline-${floor.floor_id}`);
+            if (mapEl) mapEl.style.display = (show && tab === 'map')      ? 'block' : 'none';
+            if (tlEl)  tlEl.style.display  = (show && tab === 'timeline') ? 'block' : 'none';
         });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || `エラー: ${res.status}`);
-        }
-        closeModal();
-        showToast('✅ 予約が完了しました');
-        await refreshData();
-    } catch (error) {
-        console.error('[予約] 失敗:', error);
-        showToast(`❌ 予約に失敗しました: ${error.message}`);
+        document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+            btn.classList.toggle('active',
+                (tab === 'map' && i === 0) || (tab === 'timeline' && i === 1));
+        });
+        if (tab === 'timeline') requestAnimationFrame(updateNowLine);
+    };
+
+    function updateNowLine() {
+        const now  = new Date();
+        const hours = now.getHours() + now.getMinutes() / 60;
+        const pct   = ((hours - START_HOUR) / (END_HOUR - START_HOUR)) * 100;
+        const inRange = hours >= START_HOUR && hours <= END_HOUR;
+        floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
+            const line  = document.getElementById(`nowline-${floor.floor_id}`);
+            const tbody = document.getElementById(`tbody-${floor.floor_id}`);
+            if (!line || !tbody) return;
+            if (!inRange) { line.style.display = 'none'; return; }
+            const track = tbody.querySelector('.timeline-track');
+            if (!track) { line.style.display = 'none'; return; }
+            const tbRect    = tbody.getBoundingClientRect();
+            const trackRect = track.getBoundingClientRect();
+            line.style.display = 'block';
+            line.style.left = ((trackRect.left - tbRect.left) + (pct / 100) * trackRect.width) + 'px';
+        });
     }
-}
+    setInterval(() => { if (currentTab === 'timeline') updateNowLine(); }, 60000);
+    window.addEventListener('resize', () => { if (currentTab === 'timeline') updateNowLine(); });
 
-// ============================================================
-// キャンセル確認ダイアログ
-// ============================================================
-let pendingCancelId = null;
+    window.applyFilter = function(floorId) {
+        const tl = document.getElementById(`timeline-${floorId}`);
+        if (!tl) return;
+        const types       = [...tl.querySelectorAll('.filter-type:checked')].map(c => c.value);
+        const monitorOnly = tl.querySelector('.filter-monitor').checked;
+        const caps        = [...tl.querySelectorAll('.filter-cap:checked')].map(c => c.value);
+        const isActive    = types.length > 0 || monitorOnly || caps.length > 0;
 
-// ★修正：reservation_id の null ガードを追加
-function openConfirm(reservationId, seatName, timeRange) {
-    if (!reservationId) {
-        showToast('❌ 予約情報が取得できません');
-        return;
-    }
-    pendingCancelId = reservationId;
-    document.getElementById('confirmText').textContent =
-        `「${seatName}」の予約（${timeRange}）をキャンセルします。`;
-    document.getElementById('cancelPassword').value = '';
-    document.getElementById('confirmOverlay').classList.add('open');
-}
+        document.getElementById(`badge-${floorId}`)?.classList.toggle('show', isActive);
+        document.getElementById(`reset-${floorId}`)?.classList.toggle('show', isActive);
 
-// ★修正：パスワード欄もリセット
-function closeConfirm() {
-    pendingCancelId = null;
-    document.getElementById('cancelPassword').value = '';
-    document.getElementById('confirmOverlay').classList.remove('open');
-}
-
-// ★修正：パスワードバリデーション・API に password を JSON 送信
-async function executeCancel() {
-    if (!pendingCancelId) return;
-
-    const password = document.getElementById('cancelPassword').value.trim();
-    if (!/^\d{4}$/.test(password)) {
-        showToast('⚠️ パスワードは4桁の数字で入力してください');
-        return;
-    }
-
-    const targetId = pendingCancelId;
-    closeConfirm();
-
-    try {
-        const res = await fetch(
-            `${API_BASE}/api/reservations/cancel/${targetId}`,
-            {
-                method  : 'POST',
-                headers : { 'Content-Type': 'application/json' },
-                body    : JSON.stringify({ password }),  // ★追加
+        document.getElementById(`tlRows-${floorId}`)
+            ?.querySelectorAll('.timeline-row').forEach(row => {
+            const rType = row.dataset.type || '';
+            if (rType.startsWith('section-')) {
+                const kind = rType.replace('section-', '');
+                row.classList.toggle('filtered-out', types.length > 0 && !types.includes(kind));
+                return;
             }
-        );
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || `エラー: ${res.status}`);
+            const passType    = types.length === 0 || types.includes(rType);
+            const passMonitor = !monitorOnly || rType !== 'desk' || row.dataset.monitor === 'true';
+            const cap         = row.dataset.capacity || '';
+            const passCap     = caps.length === 0 || rType !== 'desk' || (cap && caps.includes(cap));
+            row.classList.toggle('filtered-out', !(passType && passMonitor && passCap));
+        });
+    };
+
+    window.applyFilterReset = function(floorId) {
+        const tl = document.getElementById(`timeline-${floorId}`);
+        if (!tl) return;
+        tl.querySelectorAll('.filter-type, .filter-cap').forEach(c => c.checked = false);
+        tl.querySelector('.filter-monitor').checked = false;
+        applyFilter(floorId);
+    };
+
+    function buildTimeSelects() {
+        const startSel = document.getElementById('formStart');
+        const endSel   = document.getElementById('formEnd');
+        for (let h = START_HOUR; h < END_HOUR; h++) {
+            for (const m of [0, 30]) {
+                startSel.appendChild(new Option(`${h}:${m===0?'00':m}`, `${h}:${m===0?'00':m}`));
+            }
         }
-        showToast('✅ 予約をキャンセルしました');
-        await refreshData();
-    } catch (error) {
-        console.error('[キャンセル] 失敗:', error);
-        showToast(`❌ ${error.message}`);
-    }
-}
-
-// ============================================================
-// データ取得
-// ============================================================
-
-// ★追加：過去予約削除
-async function cleanupPastReservations() {
-    try {
-        const res  = await fetch(`${API_BASE}/api/reservations/cleanup`, { method: 'DELETE' });
-        const data = await res.json();
-        console.log(`[Cleanup] ${data.message}`);
-    } catch (e) {
-        console.warn('[Cleanup] 過去予約削除失敗:', e);
-    }
-}
-
-async function loadFloors() {
-    try {
-        const res = await fetch(`${API_BASE}/api/floors`);
-        if (!res.ok) throw new Error(`API エラー: ${res.status}`);
-        floorsData = await res.json();
-        console.log(`[API] フロア: ${floorsData.length}件`);
-    } catch (e) {
-        console.warn('[API] フロアデータ取得失敗:', e);
-        floorsData = [];
-    }
-}
-
-async function loadSeats() {
-    try {
-        const res = await fetch(`${API_BASE}/api/seats`);
-        if (!res.ok) throw new Error(`API エラー: ${res.status}`);
-        seatsData = await res.json();
-        console.log(`[API] 席: ${seatsData.length}件`);
-    } catch (e) {
-        console.error('[API] 席データ取得失敗:', e);
-        showError(`データの取得に失敗しました: ${e.message}`);
-    }
-}
-
-async function loadReservations() {
-    try {
-        const res = await fetch(`${API_BASE}/api/reservations`);
-        if (!res.ok) throw new Error(`API エラー: ${res.status}`);
-        reservationsData = await res.json();
-        console.log(`[API] 予約: ${reservationsData.length}件`);
-    } catch (e) {
-        console.error('[API] 予約データ取得失敗:', e);
-        reservationsData = [];
-    }
-}
-
-async function refreshData() {
-    await loadSeats();
-    await loadReservations();
-    renderSeats();
-    renderTimelines();
-}
-
-// ============================================================
-// SignalR
-// ============================================================
-async function connectSignalR() {
-    const dot  = document.getElementById('statusDot');
-    const text = document.getElementById('statusText');
-    dot.className    = 'status-dot connecting';
-    text.textContent = '接続中...';
-
-    try {
-        const r    = await fetch(`${API_BASE}/api/negotiate/negotiate`, { method: 'POST' });
-        const data = await r.json();
-        if (data.disabled) {
-            dot.className    = 'status-dot disconnected';
-            text.textContent = 'リアルタイム更新無効';
-            return;
+        for (let h = START_HOUR; h <= END_HOUR; h++) {
+            for (const m of [0, 30]) {
+                if (h === START_HOUR && m === 0) continue;
+                if (h === END_HOUR   && m === 30) break;
+                endSel.appendChild(new Option(`${h}:${m===0?'00':m}`, `${h}:${m===0?'00':m}`));
+            }
         }
-    } catch (e) {
-        console.warn('[SignalR] ネゴシエーション失敗:', e);
+        startSel.value = '10:00';
+        endSel.value   = '11:00';
     }
 
-    const connection = new signalR.HubConnectionBuilder()
-        .withUrl(`${API_BASE}/api/negotiate`)
-        .withAutomaticReconnect([0, 3000, 10000, 30000])
-        .configureLogging(signalR.LogLevel.Warning)
-        .build();
+    window.openForm = function(seatId, seatName) {
+        document.getElementById('formSeatId').value  = seatId;
+        document.getElementById('formDesk').value    = seatName;
+        document.getElementById('formName').value    = '';
+        document.getElementById('formEmail').value   = '';
+        document.getElementById('formPassword').value = '';
+        document.getElementById('formOverlay').classList.add('open');
+    };
+    window.closeForm = function() {
+        document.getElementById('formOverlay').classList.remove('open');
+    };
+    document.getElementById('formOverlay').addEventListener('click', function(e) {
+        if (e.target === this) closeForm();
+    });
 
-    connection.on('seatStatusUpdated', async () => { await refreshData(); });
-    connection.onclose(      () => { dot.className = 'status-dot disconnected'; text.textContent = '切断'; });
-    connection.onreconnecting(() => { dot.className = 'status-dot connecting';   text.textContent = '再接続中...'; });
-    connection.onreconnected( () => { dot.className = 'status-dot connected';    text.textContent = 'リアルタイム接続中'; });
+    window.submitReservation = async function() {
+        const seatId   = document.getElementById('formSeatId').value;
+        const name     = document.getElementById('formName').value.trim();
+        const email    = document.getElementById('formEmail').value.trim();
+        const password = document.getElementById('formPassword').value.trim();
+        const start    = document.getElementById('formStart').value;
+        const end      = document.getElementById('formEnd').value;
 
-    try {
-        await connection.start();
-        dot.className    = 'status-dot connected';
-        text.textContent = 'リアルタイム接続中';
-    } catch (e) {
-        dot.className    = 'status-dot disconnected';
-        text.textContent = 'SignalR 接続失敗';
-        setTimeout(connectSignalR, 10000);
+        if (!name)                     { return showToast('⚠️ 予約者名を入力してください'); }
+        if (!email)                    { return showToast('⚠️ メールアドレスを入力してください'); }
+        if (!/^\d{4}$/.test(password)) { return showToast('⚠️ パスワードは4桁の数字で入力してください'); }
+
+        const today = new Date().toISOString().split('T')[0];
+        const toHHMM = s => { const [h,m]=s.split(':'); return `${h.padStart(2,'0')}:${(m||'00').padStart(2,'0')}`; };
+        const payload = {
+            user_id: 1, seat_id: parseInt(seatId),
+            start_datetime: `${today}T${toHHMM(start)}:00`,
+            end_datetime:   `${today}T${toHHMM(end)}:00`,
+            status: 'reserved', password,
+        };
+        try {
+            showLoading(true);
+            const res = await fetch(`${API_BASE}/api/reservations`, {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+            closeForm();
+            showToast('✅ 予約が完了しました');
+            // SignalRで自動更新されるが念のためフォールバック
+            setTimeout(async () => { await refreshData(); }, 1500);
+        } catch(e) { showToast(`❌ 予約に失敗しました: ${e.message}`); }
+        finally { showLoading(false); }
+    };
+
+    window.openConfirm = function(reservationId, seatName, timeRange) {
+        pendingCancelId = reservationId;
+        document.getElementById('confirmText').textContent =
+            `「${seatName}」の予約（${timeRange}）をキャンセルします。`;
+        document.getElementById('cancelPassword').value = '';
+        document.getElementById('confirmOverlay').classList.add('open');
+    };
+    window.closeConfirm = function() {
+        pendingCancelId = null;
+        document.getElementById('confirmOverlay').classList.remove('open');
+    };
+    window.executeCancel = async function() {
+        if (!pendingCancelId) return;
+        const password = document.getElementById('cancelPassword').value.trim();
+        if (!/^\d{4}$/.test(password)) { return showToast('⚠️ パスワードは4桁の数字で入力してください'); }
+        const id = pendingCancelId;
+        closeConfirm();
+        try {
+            showLoading(true);
+            const res = await fetch(`${API_BASE}/api/reservations/cancel/${id}`, {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ password }),
+            });
+            if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+            showToast('✅ 予約をキャンセルしました');
+            // SignalRで自動更新されるが念のためフォールバック
+            setTimeout(async () => { await refreshData(); }, 1500);
+        } catch(e) { showToast(`❌ ${e.message}`); }
+        finally { showLoading(false); }
+    };
+
+    // ============================================================
+    // ✅ SignalR接続（Azure SignalR Service対応版）
+    // ============================================================
+    function connectSignalR() {
+        const dot  = document.getElementById('connDot');
+        const text = document.getElementById('connText');
+        dot.className = 'conn-dot connecting';
+        text.textContent = '接続中...';
+
+        // -------------------------------------------------------
+        // ① まずネゴシエーションAPIを呼び出してURLとトークンを取得する
+        // -------------------------------------------------------
+        fetch(`${API_BASE}/api/negotiate/negotiate`, { method: 'POST' })
+            .then(res => {
+                if (!res.ok) throw new Error(`negotiate failed: ${res.status}`);
+                return res.json();
+            })
+            .then(info => {
+                console.log('[SignalR] negotiate成功:', info);
+
+                if (info.disabled) {
+                    // SignalR未設定環境
+                    dot.className = 'conn-dot disconnected';
+                    text.textContent = 'リアルタイム無効';
+                    return;
+                }
+
+                // -------------------------------------------------------
+                // ② 取得したURLとアクセストークンで直接接続する
+                //    Azure SignalR ServiceはこのURL形式が必須
+                // -------------------------------------------------------
+                const conn = new signalR.HubConnectionBuilder()
+                    .withUrl(info.url, {
+                        // JWTトークンをヘッダーで渡す
+                        accessTokenFactory: () => info.accessToken
+                    })
+                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+                    .configureLogging(signalR.LogLevel.Information)
+                    .build();
+
+                // -------------------------------------------------------
+                // ③ サーバーからのメッセージ受信ハンドラー
+                // -------------------------------------------------------
+                conn.on('seatStatusUpdated', async (data) => {
+                    console.log('[SignalR] seatStatusUpdated受信:', data);
+                    await refreshData();
+                });
+
+                // -------------------------------------------------------
+                // ④ 接続状態イベント
+                // -------------------------------------------------------
+                conn.onclose((err) => {
+                    console.warn('[SignalR] 切断:', err);
+                    dot.className  = 'conn-dot disconnected';
+                    text.textContent = '切断';
+                });
+                conn.onreconnecting((err) => {
+                    console.warn('[SignalR] 再接続中:', err);
+                    dot.className  = 'conn-dot connecting';
+                    text.textContent = '再接続中...';
+                });
+                conn.onreconnected((connId) => {
+                    console.log('[SignalR] 再接続成功:', connId);
+                    dot.className  = 'conn-dot connected';
+                    text.textContent = '接続中';
+                });
+
+                // -------------------------------------------------------
+                // ⑤ 接続開始
+                // -------------------------------------------------------
+                return conn.start();
+            })
+            .then(() => {
+                console.log('[SignalR] 接続完了');
+                dot.className  = 'conn-dot connected';
+                text.textContent = '接続中';
+            })
+            .catch(err => {
+                console.error('[SignalR] 接続エラー:', err);
+                dot.className  = 'conn-dot disconnected';
+                text.textContent = '接続失敗';
+
+                // 30秒後に再試行
+                setTimeout(connectSignalR, 30000);
+            });
     }
-}
 
-// ============================================================
-// ユーティリティ
-// ============================================================
-function showError(message) {
-    const el = document.getElementById('errorMessage');
-    el.textContent   = message;
-    el.style.display = 'block';
-}
+    // ============================================================
+    // ユーティリティ
+    // ============================================================
+    function stColor(st) {
+        return st === 'inuse' ? '#e74c3c' : st === 'reserved' ? '#f39c12' : '#27ae60';
+    }
+    function stText(st) {
+        return st === 'inuse' ? '使用中' : st === 'reserved' ? '予約済み' : '空き';
+    }
+    function capToClass(cap) {
+        if (cap >= 8) return 'cap-8';
+        if (cap >= 6) return 'cap-6';
+        return 'cap-4';
+    }
+    function esc(s) { return String(s).replace(/'/g, "\\'"); }
 
-let toastTimer = null;
-function showToast(message) {
-    const el = document.getElementById('toast');
-    el.textContent   = message;
-    el.style.display = 'block';
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
-}
+    function showLoading(show) {
+        document.getElementById('loadingOverlay').classList.toggle('open', show);
+    }
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 3500);
+    }
 
-function formatTime(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-function isoToAbsMin(iso) {
-    if (!iso) return 0;
-    const d = new Date(iso);
-    return d.getHours() * 60 + d.getMinutes();
-}
-
-function timeToMinutesFromISO(iso) { return isoToAbsMin(iso); }
-
-function timeToMinutes(str) {
-    if (!str) return 0;
-    const [h, m] = str.split(':').map(Number);
-    return h * 60 + (m || 0);
-}
-
-function toHHMM(str) {
-    const [h, m] = str.split(':');
-    return `${h.padStart(2, '0')}:${(m || '00').padStart(2, '0')}`;
-}
-
-// ============================================================
-// ★修正：起動時に過去予約削除を追加
-// ============================================================
-document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 アプリ起動');
-
-    await cleanupPastReservations(); // ★追加
-
-    await loadFloors();
-    await loadSeats();
-    await loadReservations();
-
-    buildFloorTabs();
-    renderSeats();
-    renderTimelines();
-
-    setInterval(async () => { await refreshData(); }, 60 * 1000);
-
-    await connectSignalR();
-});
+})();
 </script>
 </body>
 </html>
