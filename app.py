@@ -294,6 +294,7 @@ def startup_event() -> None:
 
 # ---------------------------------------------------------------------------
 # SignalR ネゴシエーション
+# ※ json.dumps に separators=(",", ":") を指定してスペースなしにする
 # ---------------------------------------------------------------------------
 
 @app.post("/api/negotiate/negotiate")
@@ -304,42 +305,57 @@ async def negotiate():
     if not conn_str:
         return {"url": "", "accessToken": "", "disabled": True}
 
+    # 接続文字列パース
     parts: dict[str, str] = {}
     for part in conn_str.strip().split(";"):
         if "=" in part:
-            k, v = part.split("=", 1)
+            k, _, v = part.partition("=")
             parts[k.strip()] = v.strip()
 
     endpoint   = parts.get("Endpoint", "").rstrip("/")
     access_key = parts.get("AccessKey", "")
-    audience   = f"{endpoint}/client/?hub={hub_name}"
+
+    if not endpoint or not access_key:
+        print(f"[Negotiate] パースエラー: keys={list(parts.keys())}")
+        return {"url": "", "accessToken": "", "disabled": True}
+
+    # クライアント接続用 URL
+    client_url = f"{endpoint}/client/?hub={hub_name}"
     now        = int(time.time())
 
-    header = (
-        base64.urlsafe_b64encode(
-            json.dumps({"alg": "HS256", "typ": "JWT"}).encode()
-        ).rstrip(b"=").decode()
-    )
-    payload_b64 = (
-        base64.urlsafe_b64encode(
-            json.dumps({
-                "aud": audience,
-                "exp": now + 3600,
-                "iat": now,
-            }).encode()
-        ).rstrip(b"=").decode()
-    )
-    signing_input = f"{header}.{payload_b64}"
+    # ヘッダー（separators でスペースなし）
+    header_b64 = base64.urlsafe_b64encode(
+        json.dumps(
+            {"alg": "HS256", "typ": "JWT"},
+            separators=(",", ":"),          # ← スペースなし
+        ).encode()
+    ).rstrip(b"=").decode()
+
+    # ペイロード（separators でスペースなし）
+    payload_b64 = base64.urlsafe_b64encode(
+        json.dumps(
+            {"aud": client_url, "iat": now, "exp": now + 3600},
+            separators=(",", ":"),          # ← スペースなし
+        ).encode()
+    ).rstrip(b"=").decode()
+
+    # 署名
+    signing_input = f"{header_b64}.{payload_b64}"
     raw_sig = hmac.new(
         key=access_key.encode("utf-8"),
         msg=signing_input.encode("utf-8"),
         digestmod=hashlib.sha256,
     ).digest()
-    signature = base64.urlsafe_b64encode(raw_sig).rstrip(b"=").decode()
+    sig_b64 = base64.urlsafe_b64encode(raw_sig).rstrip(b"=").decode()
+
+    token = f"{header_b64}.{payload_b64}.{sig_b64}"
+
+    print(f"[Negotiate] url={client_url}")
+    print(f"[Negotiate] token[:50]={token[:50]}")
 
     return {
-        "url": audience,
-        "accessToken": f"{header}.{payload_b64}.{signature}",
+        "url"        : client_url,
+        "accessToken": token,
     }
 
 
@@ -408,10 +424,6 @@ def sync_seat_status(conn: pyodbc.Connection, seat_id: int) -> str:
     """
     予約テーブルを参照して座席の実際のステータスを計算し
     seats テーブルを更新した上で現在のステータス文字列を返す
-
-    ステータスロジック:
-        - 現在時刻に有効な予約がある → "reserved"
-        - ない                      → "empty"
     """
     cursor = conn.cursor()
     cursor.execute(
@@ -436,7 +448,7 @@ def sync_seat_status(conn: pyodbc.Connection, seat_id: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 過去予約削除 API（フロント起動時に呼び出す）
+# 過去予約削除 API
 # ---------------------------------------------------------------------------
 
 @app.delete("/api/reservations/cleanup", status_code=200)
@@ -582,9 +594,7 @@ def create_seat(
         (new_id,),
     )
     result = SeatRead(**row_to_dict(cursor, cursor.fetchone()))
-
     notify_seat_status(new_id, result.status)
-
     return result
 
 
@@ -627,7 +637,6 @@ def update_seat(
         ),
     )
     conn.commit()
-
     notify_seat_status(seat_id, current["status"])
 
     cursor.execute(
@@ -939,7 +948,6 @@ def cancel_by_outlook_event(
         raise HTTPException(status_code=400, detail="outlook_event_id が必要です")
 
     cursor = conn.cursor()
-
     cursor.execute(
         """
         SELECT reservation_id, seat_id
