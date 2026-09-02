@@ -64,10 +64,7 @@ def get_token_struct() -> bytes:
     )
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
-    return struct.pack(f"<i{len(token_bytes)}s", len(token_bytes), token_bytes)
-
-
-def open_connection() -> pyodbc.Connection:
+    return struct.pack(f"<i{len(token_bytes)}s",> pyodbc.Connection:
     """Azure SQL への認証済みコネクションを返す"""
     return pyodbc.connect(CONNECTION_STRING, attrs_before={1256: get_token_struct()})
 
@@ -112,7 +109,7 @@ def notify_seat_status(seat_id: int, status: str) -> None:
 app = FastAPI(
     title="Akichance Reservation / Seat Management API",
     description="Reservation and seat management API for Akichance. (Azure SQL)",
-    version="3.9.0",
+    version="3.10.0",
 )
 
 # ---------------------------------------------------------------------------
@@ -294,7 +291,6 @@ def startup_event() -> None:
 
 # ---------------------------------------------------------------------------
 # SignalR ネゴシエーション
-# ※ json.dumps に separators=(",", ":") を指定してスペースなしにする
 # ---------------------------------------------------------------------------
 
 @app.post("/api/negotiate/negotiate")
@@ -305,7 +301,6 @@ async def negotiate():
     if not conn_str:
         return {"url": "", "accessToken": "", "disabled": True}
 
-    # 接続文字列パース
     parts: dict[str, str] = {}
     for part in conn_str.strip().split(";"):
         if "=" in part:
@@ -319,7 +314,6 @@ async def negotiate():
         print(f"[Negotiate] パースエラー: keys={list(parts.keys())}")
         return {"url": "", "accessToken": "", "disabled": True}
 
-    # Serverlessモード用クライアントURL
     client_url = f"{endpoint}/client/?hub={hub_name}"
     now        = int(time.time())
 
@@ -402,8 +396,8 @@ def is_overlapping(
 ) -> bool:
     """
     指定時間帯に予約の重複があるか確認する。
-    座席が in_use の場合は現在時刻と予約時間帯が重なる場合のみブロック。
-    未来の時間帯への予約は in_use であっても許可する。
+    座席が in_use の場合、予約開始時刻が現在時刻以前であればブロック。
+    予約開始時刻が現在時刻より後（未来）であれば許可。
     """
     cursor = conn.cursor()
 
@@ -425,27 +419,27 @@ def is_overlapping(
     if cursor.fetchone()[0] > 0:
         return True
 
-    # ② 座席が in_use の場合は「現在時刻と予約時間帯が重なる場合のみ」ブロック
-    # 例：現在13:00にin_use → 13:00〜14:00の予約はブロック、15:00〜16:00はOK
+    # ② 座席が in_use の場合
+    # 予約開始時刻 <= 現在時刻 ならブロック（現在時刻と重なる）
+    # 予約開始時刻 >  現在時刻 なら許可（未来の予約）
     cursor.execute(
         "SELECT status FROM seats WHERE seat_id = ?",
         (seat_id,),
     )
     seat_row = cursor.fetchone()
     if seat_row and seat_row[0] == "in_use":
-        # 現在時刻がDBのGETDATE()と合わせるためSQLで比較
         cursor.execute(
             """
             SELECT CASE
-                WHEN GETDATE() >= ? AND GETDATE() < ?
+                WHEN ? <= GETDATE()
                 THEN 1
                 ELSE 0
             END
             """,
-            (start, end),
+            (start,),
         )
-        is_current_time_in_range = cursor.fetchone()[0]
-        if is_current_time_in_range:
+        start_is_now_or_past = cursor.fetchone()[0]
+        if start_is_now_or_past:
             return True
 
     return False
@@ -465,7 +459,6 @@ def sync_seat_status(conn: pyodbc.Connection, seat_id: int) -> str:
     """
     cursor = conn.cursor()
 
-    # 現在の座席ステータスを確認
     cursor.execute(
         "SELECT status FROM seats WHERE seat_id = ?",
         (seat_id,),
@@ -750,10 +743,10 @@ def available_seats(
           )
           AND (
               status != 'in_use'
-              OR NOT (GETDATE() >= ? AND GETDATE() < ?)
+              OR ? > GETDATE()
           )
     """
-    params: list = [start_datetime, end_datetime, start_datetime, end_datetime]
+    params: list = [start_datetime, end_datetime, start_datetime]
 
     if floor_id is not None:
         query += " AND floor_id = ?"
@@ -819,7 +812,6 @@ def create_reservation(
 
     cursor = conn.cursor()
 
-    # 座席の存在確認
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
         (payload.seat_id,),
@@ -1122,9 +1114,9 @@ def sync_outlook_reservation(
     assert_time_range(payload.start_time, payload.end_time)
     cursor = conn.cursor()
 
-    # 座席の存在確認と同時にステータスも取得
+    # 座席の存在確認
     cursor.execute(
-        "SELECT seat_id, status FROM seats WHERE seat_name = ? AND is_active = 1",
+        "SELECT seat_id FROM seats WHERE seat_name = ? AND is_active = 1",
         (payload.seat_number,),
     )
     seat = cursor.fetchone()
@@ -1187,7 +1179,7 @@ def sync_outlook_reservation(
         conn.commit()
 
     else:
-        # 新規: in_use + 重複チェック（is_overlapping に一本化）
+        # 新規: 重複チェック（in_use 時間考慮込み）
         if is_overlapping(conn, seat_id, payload.start_time, payload.end_time):
             raise HTTPException(
                 status_code=409,
