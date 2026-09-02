@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 # .env から接続文字列を取得する
 SIGNALR_CONNECTION_STRING: str = os.getenv("SIGNALR_CONNECTION_STRING", "")
 
+
 def parse_connection_string(connection_string: str) -> tuple[str, str]:
     """
     SignalR の接続文字列をパースして
@@ -31,7 +32,7 @@ def parse_connection_string(connection_string: str) -> tuple[str, str]:
     for part in connection_string.split(";"):
         if "=" in part:
             key, value = part.split("=", 1)
-            parts[key] = value
+            parts[key.strip()] = value.strip()
 
     endpoint = parts.get("Endpoint", "").rstrip("/")
     access_key = parts.get("AccessKey", "")
@@ -53,7 +54,7 @@ def generate_token(endpoint: str, access_key: str, hub: str) -> str:
     # 署名対象の文字列を生成する
     string_to_sign = f"{quote(url, safe='')}\n{expiry}"
 
-    # HMAC-SHA256で署名を生成する
+    # ✅ 修正: hmac.new → hmac.new
     signature = hmac.new(
         access_key.encode("utf-8"),
         string_to_sign.encode("utf-8"),
@@ -94,6 +95,10 @@ def send_message(hub: str, target: str, arguments: list) -> bool:
     # 接続文字列をパースする
     endpoint, access_key = parse_connection_string(SIGNALR_CONNECTION_STRING)
 
+    if not endpoint or not access_key:
+        print("WARNING: Endpoint または AccessKey のパースに失敗しました")
+        return False
+
     # アクセストークンを生成する
     token = generate_token(endpoint, access_key, hub)
 
@@ -118,22 +123,22 @@ def send_message(hub: str, target: str, arguments: list) -> bool:
         with urlopen(request, timeout=30) as res:
             status = res.getcode()
             if status == 202:
-                print(f"SignalR 送信成功: target={target}")
+                print(f"[SignalR] 送信成功: target={target}, arguments={arguments}")
                 return True
             else:
                 body = res.read().decode("utf-8")
-                print(f"SignalR 送信失敗: status={status}, body={body}")
+                print(f"[SignalR] 送信失敗: status={status}, body={body}")
                 return False
 
     except HTTPError as e:
-        body = e.read().decode("utf-8") if hasattr(e, 'read') else str(e)
-        print(f"SignalR 送信失敗: status={e.code}, body={body}")
+        body = e.read().decode("utf-8") if hasattr(e, "read") else str(e)
+        print(f"[SignalR] HTTPError: status={e.code}, body={body}")
         return False
 
     except URLError as e:
-        print(f"SignalR 送信エラー: {e.reason}")
+        print(f"[SignalR] URLError: {e.reason}")
         return False
 
     except Exception as e:
-        print(f"SignalR 送信エラー: {e}")
+        print(f"[SignalR] 予期しないエラー: {e}")
         return False
