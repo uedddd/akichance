@@ -64,7 +64,7 @@ def get_token_struct() -> bytes:
     )
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
-    return struct.pack(f" pyodbc.Connection:  # ← 別の関数として分ける
+    return struct.pack(f"<i{len(token_bytes)}s",> pyodbc.Connection:  # ← 別関数として追加
     """Azure SQL への認証済みコネクションを返す"""
     return pyodbc.connect(CONNECTION_STRING, attrs_before={1256: get_token_struct()})
 
