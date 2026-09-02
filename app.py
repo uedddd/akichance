@@ -34,12 +34,12 @@ from pydantic import BaseModel, Field, field_validator
 # データベース接続設定
 # ---------------------------------------------------------------------------
 
-AZURE_SQL_SERVER: str   = os.getenv("AZURE_SQL_SERVER", "akichanceserver.database.windows.net")
-AZURE_SQL_DATABASE: str = os.getenv("AZURE_SQL_DATABASE", "akichanceDB")
-AZURE_CLIENT_ID: str    = os.getenv("AZURE_CLIENT_ID", "")
+AZURE_SQL_SERVER: str    = os.getenv("AZURE_SQL_SERVER", "akichanceserver.database.windows.net")
+AZURE_SQL_DATABASE: str  = os.getenv("AZURE_SQL_DATABASE", "akichanceDB")
+AZURE_CLIENT_ID: str     = os.getenv("AZURE_CLIENT_ID", "")
 AZURE_CLIENT_SECRET: str = os.getenv("AZURE_CLIENT_SECRET", "")
-AZURE_TENANT_ID: str    = os.getenv("AZURE_TENANT_ID", "")
-AZURE_SQL_DRIVER: str   = os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server")
+AZURE_TENANT_ID: str     = os.getenv("AZURE_TENANT_ID", "")
+AZURE_SQL_DRIVER: str    = os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server")
 
 CONNECTION_STRING: str = (
     f"DRIVER={{{AZURE_SQL_DRIVER}}};"
@@ -64,7 +64,10 @@ def get_token_struct() -> bytes:
     )
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
-    return struct.pack(f"<i{len(token_bytes)}s",> pyodbc.Connection:  # ← 別関数として追加
+    return struct.pack(f"<i{len(token_bytes)}s", len(token_bytes), token_bytes)
+
+
+def open_connection() -> pyodbc.Connection:
     """Azure SQL への認証済みコネクションを返す"""
     return pyodbc.connect(CONNECTION_STRING, attrs_before={1256: get_token_struct()})
 
@@ -143,13 +146,13 @@ class SeatRead(BaseModel):
 
 
 class SeatCreate(BaseModel):
-    floor_id: int            = Field(..., description="所属フロアID")
-    seat_name: str           = Field(..., description="座席名（表示用）")
-    status: str              = Field("empty", description="座席ステータス")
-    is_active: bool          = Field(True, description="予約受付フラグ")
-    seat_type: str           = Field("desk", description="座席種別")
-    capacity: Optional[int]  = Field(None, description="収容人数")
-    has_monitor: bool        = Field(False, description="モニター有無")
+    floor_id: int           = Field(..., description="所属フロアID")
+    seat_name: str          = Field(..., description="座席名（表示用）")
+    status: str             = Field("empty", description="座席ステータス")
+    is_active: bool         = Field(True, description="予約受付フラグ")
+    seat_type: str          = Field("desk", description="座席種別")
+    capacity: Optional[int] = Field(None, description="収容人数")
+    has_monitor: bool       = Field(False, description="モニター有無")
 
 
 class SeatUpdate(BaseModel):
@@ -444,7 +447,6 @@ def cleanup_past_reservations(
     try:
         cursor = conn.cursor()
 
-        # 削除対象の seat_id を先に取得しておく（通知のため）
         cursor.execute(
             """
             SELECT DISTINCT seat_id
@@ -465,7 +467,6 @@ def cleanup_past_reservations(
         deleted_count = cursor.rowcount
         conn.commit()
 
-        # ✅ 削除された座席のステータスを更新して SignalR 通知
         for seat_id in affected_seat_ids:
             new_status = sync_seat_status(conn, seat_id)
             conn.commit()
@@ -582,7 +583,6 @@ def create_seat(
     )
     result = SeatRead(**row_to_dict(cursor, cursor.fetchone()))
 
-    # ✅ 新規座席作成を通知
     notify_seat_status(new_id, result.status)
 
     return result
@@ -628,7 +628,6 @@ def update_seat(
     )
     conn.commit()
 
-    # ✅ ステータス変更を通知
     notify_seat_status(seat_id, current["status"])
 
     cursor.execute(
@@ -794,7 +793,6 @@ def create_reservation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # ✅ 座席ステータスを同期して SignalR 通知
     new_seat_status = sync_seat_status(conn, payload.seat_id)
     conn.commit()
     notify_seat_status(payload.seat_id, new_seat_status)
@@ -832,7 +830,7 @@ def update_reservation(
         raise HTTPException(status_code=404, detail="Reservation not found")
 
     current     = row_to_dict(cursor, row)
-    old_seat_id = current["seat_id"]  # 変更前の seat_id（座席変更検知のため）
+    old_seat_id = current["seat_id"]
     update_data = payload.model_dump(exclude_unset=True)
     current.update(update_data)
 
@@ -873,13 +871,11 @@ def update_reservation(
     )
     conn.commit()
 
-    # ✅ 座席変更があった場合は旧座席も通知
     if old_seat_id != current["seat_id"]:
         old_status = sync_seat_status(conn, old_seat_id)
         conn.commit()
         notify_seat_status(old_seat_id, old_status)
 
-    # ✅ 新しい（または同じ）座席を通知
     new_seat_status = sync_seat_status(conn, current["seat_id"])
     conn.commit()
     notify_seat_status(current["seat_id"], new_seat_status)
@@ -921,7 +917,6 @@ def delete_reservation(
     )
     conn.commit()
 
-    # ✅ 削除後に座席ステータスを同期して通知
     new_status = sync_seat_status(conn, seat_id)
     conn.commit()
     notify_seat_status(seat_id, new_status)
@@ -958,7 +953,7 @@ def cancel_by_outlook_event(
         raise HTTPException(status_code=404, detail="予約が見つかりません")
 
     reservation_id = row[0]
-    seat_id = row[1]
+    seat_id        = row[1]
 
     cursor.execute(
         """
@@ -1026,12 +1021,10 @@ def cancel_reservation_by_id(
     )
     conn.commit()
 
-    # ✅ 座席ステータスを同期して SignalR 通知
     new_seat_status = sync_seat_status(conn, seat_id)
     conn.commit()
     notify_seat_status(seat_id, new_seat_status)
 
-    # Power Automate 通知（失敗しても続行）
     if os.getenv("POWER_AUTOMATE_CANCEL_URL", ""):
         try:
             import requests as _req
@@ -1066,7 +1059,6 @@ def sync_outlook_reservation(
     assert_time_range(payload.start_time, payload.end_time)
     cursor = conn.cursor()
 
-    # seat_number から seat_id を取得
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_name = ? AND is_active = 1",
         (payload.seat_number,),
@@ -1079,7 +1071,6 @@ def sync_outlook_reservation(
         )
     seat_id = seat[0]
 
-    # email から user_id を取得
     cursor.execute(
         "SELECT user_id FROM users WHERE email = ?",
         (payload.email,),
@@ -1092,7 +1083,6 @@ def sync_outlook_reservation(
         )
     user_id = user[0]
 
-    # outlook_event_id で既存予約を検索
     cursor.execute(
         "SELECT reservation_id FROM reservations WHERE outlook_event_id = ?",
         (payload.outlook_event_id,),
@@ -1139,7 +1129,6 @@ def sync_outlook_reservation(
         reservation_id = int(cursor.fetchone()[0])
         conn.commit()
 
-    # ✅ 座席ステータスを同期して SignalR 通知
     new_seat_status = sync_seat_status(conn, seat_id)
     conn.commit()
     notify_seat_status(seat_id, new_seat_status)
