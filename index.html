@@ -61,7 +61,6 @@
         .floor-panel { display: none; }
         .floor-panel.active { display: block; }
 
-        /* マップ */
         .map-area {
             background: white; border-radius: 12px;
             padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
@@ -179,7 +178,6 @@
         @keyframes flash { 0%{opacity:1;}50%{opacity:0.4;}100%{opacity:1;} }
         .flashing { animation: flash 0.6s ease-in-out; }
 
-        /* タイムライン */
         .timeline-filter-bar {
             background: #f8f9fb; border: 1.5px solid #e0e4ea;
             border-radius: 10px; padding: 10px 16px;
@@ -248,7 +246,6 @@
         .block-inuse    { background: #e74c3c; }
         .block-reserved { background: #f39c12; }
 
-        /* 予約フォーム */
         .form-overlay {
             display: none; position: fixed; inset: 0;
             background: rgba(0,0,0,0.4); z-index: 200;
@@ -283,7 +280,6 @@
         }
         .btn-cancel:hover { background: #dde2ea; }
 
-        /* キャンセル確認 */
         .confirm-overlay {
             display: none; position: fixed; inset: 0;
             background: rgba(0,0,0,0.4); z-index: 300;
@@ -440,28 +436,21 @@
 (function () {
     'use strict';
 
-    // ============================================================
-    // 定数
-    // ============================================================
     const API_BASE     = '';
     const START_HOUR   = 9;
     const END_HOUR     = 18;
-    const TL_TOTAL_MIN = (END_HOUR - START_HOUR) * 60; // 540分
+    const TL_TOTAL_MIN = (END_HOUR - START_HOUR) * 60;
 
-    // floor_id → 階名・デスクPrefix・会議室Prefix
     const FLOOR_DEF = {
         2: { label: '4階', floorNum: '4', deskPfx: '4-1', confPfx: '会議室04' },
         3: { label: '5階', floorNum: '5', deskPfx: '5-1', confPfx: '会議室05' },
         4: { label: '6階', floorNum: '6', deskPfx: '6-1', confPfx: '会議室06' },
     };
 
-    // ============================================================
-    // 状態
-    // ============================================================
     let seatsData        = [];
     let reservationsData = [];
     let floorsData       = [];
-    let currentFloor     = null; // floor_id (number)
+    let currentFloor     = null;
     let currentTab       = 'map';
     let pendingCancelId  = null;
 
@@ -476,7 +465,7 @@
         updateSummary();
         showTab('map');
         setInterval(async () => { await refreshData(); }, 60000);
-        connectSignalR();
+        connectSignalR(); // ← SignalR接続は最後に実行
     });
 
     // ============================================================
@@ -594,7 +583,6 @@
         }).join('');
 
         return `
-            <!-- マップ -->
             <div id="map-${floor.floor_id}" class="map-area">
                 <div class="section-title-row">
                     <div class="section-title">🗺️ フロアマップ —</div>
@@ -606,7 +594,6 @@
                     </div>
                 </div>
             </div>
-            <!-- タイムライン -->
             <div id="timeline-${floor.floor_id}" class="timeline-area" style="display:none;">
                 <div class="section-title-row">
                     <div class="section-title">📅 タイムライン（9:00〜18:00）—</div>
@@ -625,7 +612,6 @@
             </div>`;
     }
 
-    // ---- フロアマップ HTML ----
     function buildMapHTML(floorId, def) {
         const seats     = seatsData.filter(s => s.floor_id === floorId);
         const confSeats = seats.filter(s => s.seat_type === 'conf').sort((a,b)=>a.seat_name.localeCompare(b.seat_name, 'ja'));
@@ -745,7 +731,6 @@
         return '本日空き';
     }
 
-    // ---- タイムライン行 HTML ----
     function buildTimelineRowsHTML(floorId) {
         const seats     = seatsData.filter(s => s.floor_id === floorId);
         const deskSeats = seats.filter(s => s.seat_type === 'desk').sort((a,b)=>a.seat_name.localeCompare(b.seat_name,'ja'));
@@ -797,14 +782,12 @@
             const left  = (startM / TL_TOTAL_MIN * 100).toFixed(2);
             const width = ((endM - startM) / TL_TOTAL_MIN * 100).toFixed(2);
             const cls   = r.status === 'in_use' ? 'block-inuse' : 'block-reserved';
-            const lbl   = r.status === 'in_use' ? '使用中' : '予約済み';
             const tip   = `${fmtTime(r.start_datetime)}〜${fmtTime(r.end_datetime)}`;
             return `<div class="timeline-block ${cls}" style="left:${left}%;width:${width}%"
                         title="${tip}">${tip}</div>`;
         }).join('');
     }
 
-    // ---- フィルターバー HTML ----
     function buildFilterBarHTML(floorId) {
         return `
             <div class="timeline-filter-bar">
@@ -834,9 +817,6 @@
             </div>`;
     }
 
-    // ============================================================
-    // カード再描画（refreshData用）
-    // ============================================================
     function rebuildCards() {
         floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
             const def    = FLOOR_DEF[floor.floor_id];
@@ -855,15 +835,12 @@
         });
     }
 
-    // ============================================================
-    // サマリー
-    // ============================================================
     function updateSummary() {
         let total = 0, vacant = 0, inuse = 0, reserved = 0;
         seatsData.forEach(s => {
             total++;
             const st = getStatus(s);
-            if (st === 'vacant')   vacant++;
+            if (st === 'vacant')        vacant++;
             else if (st === 'inuse')    inuse++;
             else if (st === 'reserved') reserved++;
         });
@@ -873,9 +850,6 @@
         document.getElementById('sumReserved').textContent = reserved;
     }
 
-    // ============================================================
-    // フロア・タブ切替
-    // ============================================================
     window.switchFloor = function(floorId) {
         floorId = Number(floorId);
         currentFloor = floorId;
@@ -907,9 +881,6 @@
         if (tab === 'timeline') requestAnimationFrame(updateNowLine);
     };
 
-    // ============================================================
-    // 現在時刻ライン
-    // ============================================================
     function updateNowLine() {
         const now  = new Date();
         const hours = now.getHours() + now.getMinutes() / 60;
@@ -931,13 +902,10 @@
     setInterval(() => { if (currentTab === 'timeline') updateNowLine(); }, 60000);
     window.addEventListener('resize', () => { if (currentTab === 'timeline') updateNowLine(); });
 
-    // ============================================================
-    // フィルター
-    // ============================================================
     window.applyFilter = function(floorId) {
         const tl = document.getElementById(`timeline-${floorId}`);
         if (!tl) return;
-        const types      = [...tl.querySelectorAll('.filter-type:checked')].map(c => c.value);
+        const types       = [...tl.querySelectorAll('.filter-type:checked')].map(c => c.value);
         const monitorOnly = tl.querySelector('.filter-monitor').checked;
         const caps        = [...tl.querySelectorAll('.filter-cap:checked')].map(c => c.value);
         const isActive    = types.length > 0 || monitorOnly || caps.length > 0;
@@ -969,9 +937,6 @@
         applyFilter(floorId);
     };
 
-    // ============================================================
-    // 予約フォーム
-    // ============================================================
     function buildTimeSelects() {
         const startSel = document.getElementById('formStart');
         const endSel   = document.getElementById('formEnd');
@@ -992,10 +957,10 @@
     }
 
     window.openForm = function(seatId, seatName) {
-        document.getElementById('formSeatId').value = seatId;
-        document.getElementById('formDesk').value   = seatName;
-        document.getElementById('formName').value   = '';
-        document.getElementById('formEmail').value  = '';
+        document.getElementById('formSeatId').value  = seatId;
+        document.getElementById('formDesk').value    = seatName;
+        document.getElementById('formName').value    = '';
+        document.getElementById('formEmail').value   = '';
         document.getElementById('formPassword').value = '';
         document.getElementById('formOverlay').classList.add('open');
     };
@@ -1035,14 +1000,12 @@
             if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
             closeForm();
             showToast('✅ 予約が完了しました');
-            await refreshData();
+            // SignalRで自動更新されるが念のためフォールバック
+            setTimeout(async () => { await refreshData(); }, 1500);
         } catch(e) { showToast(`❌ 予約に失敗しました: ${e.message}`); }
         finally { showLoading(false); }
     };
 
-    // ============================================================
-    // キャンセル確認
-    // ============================================================
     window.openConfirm = function(reservationId, seatName, timeRange) {
         pendingCancelId = reservationId;
         document.getElementById('confirmText').textContent =
@@ -1068,33 +1031,97 @@
             });
             if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
             showToast('✅ 予約をキャンセルしました');
-            await refreshData();
+            // SignalRで自動更新されるが念のためフォールバック
+            setTimeout(async () => { await refreshData(); }, 1500);
         } catch(e) { showToast(`❌ ${e.message}`); }
         finally { showLoading(false); }
     };
 
     // ============================================================
-    // SignalR
+    // ✅ SignalR接続（Azure SignalR Service対応版）
     // ============================================================
     function connectSignalR() {
         const dot  = document.getElementById('connDot');
         const text = document.getElementById('connText');
-        dot.className = 'conn-dot connecting'; text.textContent = '接続中...';
+        dot.className = 'conn-dot connecting';
+        text.textContent = '接続中...';
 
-        const conn = new signalR.HubConnectionBuilder()
-            .withUrl(`${API_BASE}/api/negotiate`)
-            .withAutomaticReconnect([0, 3000, 10000, 30000])
-            .configureLogging(signalR.LogLevel.Warning)
-            .build();
+        // -------------------------------------------------------
+        // ① まずネゴシエーションAPIを呼び出してURLとトークンを取得する
+        // -------------------------------------------------------
+        fetch(`${API_BASE}/api/negotiate`, { method: 'POST' })
+            .then(res => {
+                if (!res.ok) throw new Error(`negotiate failed: ${res.status}`);
+                return res.json();
+            })
+            .then(info => {
+                console.log('[SignalR] negotiate成功:', info);
 
-        conn.on('seatStatusUpdated', async () => { await refreshData(); });
-        conn.onclose(()       => { dot.className='conn-dot disconnected'; text.textContent='切断'; });
-        conn.onreconnecting(()=> { dot.className='conn-dot connecting';   text.textContent='再接続中...'; });
-        conn.onreconnected(() => { dot.className='conn-dot connected';    text.textContent='接続中'; });
+                if (info.disabled) {
+                    // SignalR未設定環境
+                    dot.className = 'conn-dot disconnected';
+                    text.textContent = 'リアルタイム無効';
+                    return;
+                }
 
-        conn.start()
-            .then(() => { dot.className='conn-dot connected'; text.textContent='接続中'; })
-            .catch(() => { dot.className='conn-dot disconnected'; text.textContent='接続失敗'; });
+                // -------------------------------------------------------
+                // ② 取得したURLとアクセストークンで直接接続する
+                //    Azure SignalR ServiceはこのURL形式が必須
+                // -------------------------------------------------------
+                const conn = new signalR.HubConnectionBuilder()
+                    .withUrl(info.url, {
+                        // JWTトークンをヘッダーで渡す
+                        accessTokenFactory: () => info.accessToken
+                    })
+                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+                    .configureLogging(signalR.LogLevel.Information)
+                    .build();
+
+                // -------------------------------------------------------
+                // ③ サーバーからのメッセージ受信ハンドラー
+                // -------------------------------------------------------
+                conn.on('seatStatusUpdated', async (data) => {
+                    console.log('[SignalR] seatStatusUpdated受信:', data);
+                    await refreshData();
+                });
+
+                // -------------------------------------------------------
+                // ④ 接続状態イベント
+                // -------------------------------------------------------
+                conn.onclose((err) => {
+                    console.warn('[SignalR] 切断:', err);
+                    dot.className  = 'conn-dot disconnected';
+                    text.textContent = '切断';
+                });
+                conn.onreconnecting((err) => {
+                    console.warn('[SignalR] 再接続中:', err);
+                    dot.className  = 'conn-dot connecting';
+                    text.textContent = '再接続中...';
+                });
+                conn.onreconnected((connId) => {
+                    console.log('[SignalR] 再接続成功:', connId);
+                    dot.className  = 'conn-dot connected';
+                    text.textContent = '接続中';
+                });
+
+                // -------------------------------------------------------
+                // ⑤ 接続開始
+                // -------------------------------------------------------
+                return conn.start();
+            })
+            .then(() => {
+                console.log('[SignalR] 接続完了');
+                dot.className  = 'conn-dot connected';
+                text.textContent = '接続中';
+            })
+            .catch(err => {
+                console.error('[SignalR] 接続エラー:', err);
+                dot.className  = 'conn-dot disconnected';
+                text.textContent = '接続失敗';
+
+                // 30秒後に再試行
+                setTimeout(connectSignalR, 30000);
+            });
     }
 
     // ============================================================
