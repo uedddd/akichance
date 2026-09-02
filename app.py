@@ -394,11 +394,6 @@ def is_overlapping(
     end: datetime,
     exclude_reservation_id: Optional[int] = None,
 ) -> bool:
-    """
-    指定時間帯に予約の重複があるか確認する。
-    座席が in_use の場合、予約開始時刻が現在時刻以前であればブロック。
-    予約開始時刻が現在時刻より後（未来）であれば許可。
-    """
     cursor = conn.cursor()
 
     # ① 予約テーブルの重複チェック
@@ -416,17 +411,20 @@ def is_overlapping(
         params.append(exclude_reservation_id)
 
     cursor.execute(query, tuple(params))
-    if cursor.fetchone()[0] > 0:
+    reservation_count = cursor.fetchone()[0]
+    print(f"[is_overlapping] ① 予約重複件数: {reservation_count}")
+    if reservation_count > 0:
         return True
 
-    # ② 座席が in_use の場合
-    # 予約開始時刻 <= 現在時刻 ならブロック（現在時刻と重なる）
-    # 予約開始時刻 >  現在時刻 なら許可（未来の予約）
+    # ② 座席ステータス確認
     cursor.execute(
         "SELECT status FROM seats WHERE seat_id = ?",
         (seat_id,),
     )
     seat_row = cursor.fetchone()
+    seat_status = seat_row[0] if seat_row else "不明"
+    print(f"[is_overlapping] ② 座席ステータス: {seat_status}")
+
     if seat_row and seat_row[0] == "in_use":
         cursor.execute(
             """
@@ -439,9 +437,11 @@ def is_overlapping(
             (start,),
         )
         start_is_now_or_past = cursor.fetchone()[0]
+        print(f"[is_overlapping] ② start <= GETDATE(): {start_is_now_or_past}, start={start}")
         if start_is_now_or_past:
             return True
 
+    print(f"[is_overlapping] 重複なし → 予約許可")
     return False
 
 
