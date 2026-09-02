@@ -4,141 +4,194 @@
 # ============================================================
 
 # 標準ライブラリ
-import os
-import hmac
-import hashlib
 import base64
-import time
-from urllib.parse import quote
-
-# HTTPクライアント
+import hashlib
+import hmac
 import json
+import os
+import time
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-# .env から接続文字列を取得する
+# ---------------------------------------------------------------------------
+# 環境変数
+# ---------------------------------------------------------------------------
 SIGNALR_CONNECTION_STRING: str = os.getenv("SIGNALR_CONNECTION_STRING", "")
 
 
+# ---------------------------------------------------------------------------
+# 接続文字列パーサー
+# ---------------------------------------------------------------------------
 def parse_connection_string(connection_string: str) -> tuple[str, str]:
     """
-    SignalR の接続文字列をパースして
-    Endpoint と AccessKey を返す
+    SignalR の接続文字列をパースして Endpoint と AccessKey を返す
 
     接続文字列の形式:
-    Endpoint=https://xxxx.service.signalr.net;AccessKey=XXXX;Version=1.0;
+        Endpoint=https://xxxx.service.signalr.net;AccessKey=XXXX;Version=1.0;
     """
-    parts = {}
+    parts: dict[str, str] = {}
     for part in connection_string.split(";"):
         if "=" in part:
-            key, value = part.split("=", 1)
+            key, _, value = part.partition("=")
             parts[key.strip()] = value.strip()
 
-    endpoint = parts.get("Endpoint", "").rstrip("/")
+    endpoint   = parts.get("Endpoint", "").rstrip("/")
     access_key = parts.get("AccessKey", "")
+
+    if not endpoint or not access_key:
+        raise ValueError(
+            f"接続文字列のパースに失敗しました。"
+            f"検出されたキー: {list(parts.keys())}"
+        )
 
     return endpoint, access_key
 
 
-def generate_token(endpoint: str, access_key: str, hub: str) -> str:
+# ---------------------------------------------------------------------------
+# JWT 生成（Bearer token）
+# ---------------------------------------------------------------------------
+def generate_jwt(audience: str, access_key: str, ttl: int = 3600) -> str:
     """
-    SignalR Service への REST API リクエストに必要な
-    アクセストークンを生成して返す
+    Azure SignalR Service REST API 用の JWT を生成する
+
+    Parameters
+    ----------
+    audience   : JWT の audience（REST API の URL と同じ）
+    access_key : 接続文字列の AccessKey
+    ttl        : トークン有効期間（秒）
+
+    Returns
+    -------
+    JWT 文字列（署名済み）
     """
-    # トークンの対象URLを生成する
-    url = f"{endpoint}/api/v1/hubs/{hub}"
+    now = int(time.time())
 
-    # トークンの有効期限（現在時刻 + 1時間）
-    expiry = int(time.time()) + 3600
+    # --- ヘッダー ---
+    header_json = json.dumps(
+        {"alg": "HS256", "typ": "JWT"},
+        separators=(",", ":"),
+    ).encode()
+    header_b64 = base64.urlsafe_b64encode(header_json).rstrip(b"=").decode()
 
-    # 署名対象の文字列を生成する
-    string_to_sign = f"{quote(url, safe='')}\n{expiry}"
+    # --- ペイロード ---
+    payload_json = json.dumps(
+        {"aud": audience, "iat": now, "exp": now + ttl},
+        separators=(",", ":"),
+    ).encode()
+    payload_b64 = base64.urlsafe_b64encode(payload_json).rstrip(b"=").decode()
 
-    # ✅ 修正: hmac.new → hmac.new
-    signature = hmac.new(
-        access_key.encode("utf-8"),
-        string_to_sign.encode("utf-8"),
-        hashlib.sha256,
+    # --- 署名 ---
+    signing_input = f"{header_b64}.{payload_b64}"
+    raw_sig = hmac.new(
+        key=access_key.encode("utf-8"),
+        msg=signing_input.encode("utf-8"),
+        digestmod=hashlib.sha256,
     ).digest()
+    sig_b64 = base64.urlsafe_b64encode(raw_sig).rstrip(b"=").decode()
 
-    # Base64エンコードする
-    signature_b64 = base64.b64encode(signature).decode("utf-8")
-
-    # SharedAccessSignature形式のトークンを返す
-    return (
-        f"SharedAccessSignature "
-        f"sr={quote(url, safe='')}"
-        f"&sig={quote(signature_b64, safe='')}"
-        f"&se={expiry}"
-    )
+    return f"{header_b64}.{payload_b64}.{sig_b64}"
 
 
+# ---------------------------------------------------------------------------
+# メッセージ送信
+# ---------------------------------------------------------------------------
 def send_message(hub: str, target: str, arguments: list) -> bool:
     """
-    Azure SignalR Service に接続している
-    全クライアントへメッセージを送信する
+    Azure SignalR Service に接続している全クライアントへ
+    メッセージをブロードキャストする
 
-    引数:
-        hub       : SignalR のハブ名（例: "seatHub"）
-        target    : フロントエンドで受け取るメソッド名（例: "seatStatusUpdated"）
-        arguments : 送信するデータのリスト（例: [{"seatId": 1, "status": "使用中"}]）
+    Parameters
+    ----------
+    hub       : SignalR のハブ名（例: "seatHub"）
+    target    : クライアント側のメソッド名（例: "seatStatusUpdated"）
+    arguments : 送信データのリスト（例: [{"seatId": 1, "status": "reserved"}]）
 
-    戻り値:
-        True  : 送信成功
-        False : 送信失敗
+    Returns
+    -------
+    True  : 送信成功
+    False : 送信失敗
     """
-    # 接続文字列が設定されていない場合はスキップする
+    # ------------------------------------------------------------------
+    # 1. 接続文字列チェック
+    # ------------------------------------------------------------------
     if not SIGNALR_CONNECTION_STRING:
-        print("WARNING: SIGNALR_CONNECTION_STRING が設定されていません")
+        print("[SignalR] ⚠️  SIGNALR_CONNECTION_STRING が未設定のためスキップします")
         return False
 
-    # 接続文字列をパースする
-    endpoint, access_key = parse_connection_string(SIGNALR_CONNECTION_STRING)
-
-    if not endpoint or not access_key:
-        print("WARNING: Endpoint または AccessKey のパースに失敗しました")
+    # ------------------------------------------------------------------
+    # 2. 接続文字列パース
+    # ------------------------------------------------------------------
+    try:
+        endpoint, access_key = parse_connection_string(SIGNALR_CONNECTION_STRING)
+    except ValueError as e:
+        print(f"[SignalR] ❌ 接続文字列パースエラー: {e}")
         return False
 
-    # アクセストークンを生成する
-    token = generate_token(endpoint, access_key, hub)
+    # ------------------------------------------------------------------
+    # 3. REST API エンドポイント & JWT 生成
+    #    URL 形式: {endpoint}/api/v1/hubs/{hub}
+    # ------------------------------------------------------------------
+    url   = f"{endpoint}/api/v1/hubs/{hub}"
+    token = generate_jwt(audience=url, access_key=access_key)
 
-    # SignalR Service の REST API エンドポイント
-    url = f"{endpoint}/api/v1/hubs/{hub}"
+    # ------------------------------------------------------------------
+    # 4. リクエスト送信
+    # ------------------------------------------------------------------
+    payload = json.dumps(
+        {"target": target, "arguments": arguments},
+        ensure_ascii=False,
+    ).encode("utf-8")
 
-    # リクエストヘッダー
-    headers = {
-        "Authorization": token,
-        "Content-Type": "application/json",
-    }
+    request = Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",   # ✅ Bearer JWT
+            "Content-Type" : "application/json",
+        },
+        method="POST",
+    )
 
-    # 送信するメッセージ
-    payload = json.dumps({
-        "target": target,
-        "arguments": arguments,
-    }).encode("utf-8")
-
-    request = Request(url, data=payload, headers=headers, method="POST")
+    print(f"[SignalR] 送信開始 → url={url}, target={target}, args={arguments}")
 
     try:
-        with urlopen(request, timeout=30) as res:
+        with urlopen(request, timeout=10) as res:
             status = res.getcode()
             if status == 202:
-                print(f"[SignalR] 送信成功: target={target}, arguments={arguments}")
+                # 202 Accepted が正常レスポンス
+                print(f"[SignalR] ✅ 送信成功 (202 Accepted)")
                 return True
             else:
                 body = res.read().decode("utf-8")
-                print(f"[SignalR] 送信失敗: status={status}, body={body}")
+                print(f"[SignalR] ⚠️  予期しないステータス: status={status}, body={body}")
                 return False
 
     except HTTPError as e:
         body = e.read().decode("utf-8") if hasattr(e, "read") else str(e)
-        print(f"[SignalR] HTTPError: status={e.code}, body={body}")
+        print(f"[SignalR] ❌ HTTPError: status={e.code}, body={body}")
+        # よくあるエラーのヒントを表示
+        _print_hint(e.code)
         return False
 
     except URLError as e:
-        print(f"[SignalR] URLError: {e.reason}")
+        print(f"[SignalR] ❌ URLError（接続失敗）: {e.reason}")
         return False
 
     except Exception as e:
-        print(f"[SignalR] 予期しないエラー: {e}")
+        print(f"[SignalR] ❌ 予期しないエラー: {type(e).__name__}: {e}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# デバッグヒント
+# ---------------------------------------------------------------------------
+def _print_hint(status_code: int) -> None:
+    hints = {
+        401: "AccessKey が正しくないか、JWT 生成に問題があります",
+        404: "ハブ名が存在しないか、Endpoint URL が間違っています",
+        400: "リクエストボディの形式が正しくありません",
+        500: "SignalR Service 側のエラーです。Azure Portal を確認してください",
+    }
+    hint = hints.get(status_code, "Azure Portal でサービス状態を確認してください")
+    print(f"[SignalR] 💡 ヒント ({status_code}): {hint}")
