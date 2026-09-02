@@ -64,10 +64,7 @@ def get_token_struct() -> bytes:
     )
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
-    return struct.pack(f"<i{len(token_bytes)}s", len(token_bytes), token_bytes)
-
-
-def open_connection() -> pyodbc.Connection:
+    return struct.pack(f" pyodbc.Connection:
     """Azure SQL への認証済みコネクションを返す"""
     return pyodbc.connect(CONNECTION_STRING, attrs_before={1256: get_token_struct()})
 
@@ -676,7 +673,6 @@ def create_reservation(
     if is_overlapping(conn, payload.seat_id, payload.start_datetime, payload.end_datetime):
         raise HTTPException(status_code=409, detail="指定した時間帯はすでに予約済みです")
 
-    # パスワードをハッシュ化
     pw_hash = hash_password(payload.password)
 
     try:
@@ -806,7 +802,64 @@ def delete_reservation(
 
 
 # ---------------------------------------------------------------------------
-# 予約キャンセル API（パスワード照合）
+# 予約キャンセル API（Power Automate 連携）← 先に定義
+# ---------------------------------------------------------------------------
+
+@app.post("/api/reservations/cancel/by-outlook-event")
+def cancel_by_outlook_event(
+    payload: dict,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    """Power Automate から Outlook イベント削除を受信してキャンセルする"""
+    outlook_event_id = payload.get("outlook_event_id")
+    if not outlook_event_id:
+        raise HTTPException(status_code=400, detail="outlook_event_id が必要です")
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT reservation_id, seat_id
+        FROM reservations
+        WHERE outlook_event_id = ?
+        """,
+        (outlook_event_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="予約が見つかりません")
+
+    reservation_id = row[0]
+    seat_id = row[1]
+
+    cursor.execute(
+        """
+        UPDATE reservations
+        SET status = 'cancelled', updated_at = GETDATE()
+        WHERE reservation_id = ?
+        """,
+        (reservation_id,),
+    )
+    conn.commit()
+
+    try:
+        send_message(
+            hub="seatHub",
+            target="seatStatusUpdated",
+            arguments=[{"seatId": seat_id, "status": "empty"}],
+        )
+    except Exception as e:
+        print(f"[SignalR] 通知失敗（処理続行）: {e}")
+
+    return {
+        "status": "cancelled",
+        "reservation_id": reservation_id,
+        "message": "予約をキャンセルしました",
+    }
+
+
+# ---------------------------------------------------------------------------
+# 予約キャンセル API（パスワード照合）← 後に定義
 # ---------------------------------------------------------------------------
 
 @app.post("/api/reservations/cancel/{reservation_id}", response_model=CancelResponse)
@@ -830,7 +883,6 @@ def cancel_reservation_by_id(
 
     reservation = row_to_dict(cursor, row)
 
-    # パスワード照合
     stored_hash = reservation.get("password_hash") or ""
     if not stored_hash or not verify_password(payload.password, stored_hash):
         raise HTTPException(status_code=403, detail="パスワードが正しくありません")
@@ -845,7 +897,6 @@ def cancel_reservation_by_id(
     )
     conn.commit()
 
-    # Power Automate 通知（失敗しても続行）
     if os.getenv("POWER_AUTOMATE_CANCEL_URL", ""):
         try:
             import requests as _req
@@ -880,7 +931,6 @@ def sync_outlook_reservation(
     assert_time_range(payload.start_time, payload.end_time)
     cursor = conn.cursor()
 
-    # seat_numberからseat_idを取得
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_name = ? AND is_active = 1",
         (payload.seat_number,),
@@ -893,7 +943,6 @@ def sync_outlook_reservation(
         )
     seat_id = seat[0]
 
-    # emailからuser_idを取得
     cursor.execute(
         "SELECT user_id FROM users WHERE email = ?",
         (payload.email,),
@@ -906,7 +955,6 @@ def sync_outlook_reservation(
         )
     user_id = user[0]
 
-    # outlook_event_idで既存予約を検索
     cursor.execute(
         "SELECT reservation_id FROM reservations WHERE outlook_event_id = ?",
         (payload.outlook_event_id,),
@@ -963,5 +1011,3 @@ def sync_outlook_reservation(
         (reservation_id,),
     )
     return ReservationRead(**row_to_dict(cursor, cursor.fetchone()))
-
-
