@@ -930,7 +930,64 @@ def delete_reservation(
 
 
 # ---------------------------------------------------------------------------
-# 予約キャンセル API（パスワード照合）
+# 予約キャンセル API（Power Automate 連携）← 先に定義
+# ---------------------------------------------------------------------------
+
+@app.post("/api/reservations/cancel/by-outlook-event")
+def cancel_by_outlook_event(
+    payload: dict,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    """Power Automate から Outlook イベント削除を受信してキャンセルする"""
+    outlook_event_id = payload.get("outlook_event_id")
+    if not outlook_event_id:
+        raise HTTPException(status_code=400, detail="outlook_event_id が必要です")
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT reservation_id, seat_id
+        FROM reservations
+        WHERE outlook_event_id = ?
+        """,
+        (outlook_event_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="予約が見つかりません")
+
+    reservation_id = row[0]
+    seat_id = row[1]
+
+    cursor.execute(
+        """
+        UPDATE reservations
+        SET status = 'cancelled', updated_at = GETDATE()
+        WHERE reservation_id = ?
+        """,
+        (reservation_id,),
+    )
+    conn.commit()
+
+    try:
+        send_message(
+            hub="seatHub",
+            target="seatStatusUpdated",
+            arguments=[{"seatId": seat_id, "status": "empty"}],
+        )
+    except Exception as e:
+        print(f"[SignalR] 通知失敗（処理続行）: {e}")
+
+    return {
+        "status": "cancelled",
+        "reservation_id": reservation_id,
+        "message": "予約をキャンセルしました",
+    }
+
+
+# ---------------------------------------------------------------------------
+# 予約キャンセル API（パスワード照合）← 後に定義
 # ---------------------------------------------------------------------------
 
 @app.post("/api/reservations/cancel/{reservation_id}", response_model=CancelResponse)
@@ -955,7 +1012,6 @@ def cancel_reservation_by_id(
     reservation = row_to_dict(cursor, row)
     seat_id     = reservation["seat_id"]
 
-    # パスワード照合
     stored_hash = reservation.get("password_hash") or ""
     if not stored_hash or not verify_password(payload.password, stored_hash):
         raise HTTPException(status_code=403, detail="パスワードが正しくありません")
