@@ -1049,7 +1049,7 @@
         // -------------------------------------------------------
         // ① まずネゴシエーションAPIを呼び出してURLとトークンを取得する
         // -------------------------------------------------------
-        fetch(`${API_BASE}/api/signalr/negotiate`, { method: 'POST' })
+        fetch(`${API_BASE}/api/negotiate/negotiate`, { method: 'POST' })
             .then(res => {
                 if (!res.ok) throw new Error(`negotiate failed: ${res.status}`);
                 return res.json();
