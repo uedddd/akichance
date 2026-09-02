@@ -319,27 +319,30 @@ async def negotiate():
         print(f"[Negotiate] パースエラー: keys={list(parts.keys())}")
         return {"url": "", "accessToken": "", "disabled": True}
 
-    # クライアント接続用 URL
+    # Serverlessモード用クライアントURL
     client_url = f"{endpoint}/client/?hub={hub_name}"
     now        = int(time.time())
 
-    # ヘッダー（separators でスペースなし）
+    # audience は client_url と完全一致
     header_b64 = base64.urlsafe_b64encode(
         json.dumps(
             {"alg": "HS256", "typ": "JWT"},
-            separators=(",", ":"),          # ← スペースなし
+            separators=(",", ":"),
         ).encode()
     ).rstrip(b"=").decode()
 
-    # ペイロード（separators でスペースなし）
     payload_b64 = base64.urlsafe_b64encode(
         json.dumps(
-            {"aud": client_url, "iat": now, "exp": now + 3600},
-            separators=(",", ":"),          # ← スペースなし
+            {
+                "aud": client_url,
+                "iat": now,
+                "exp": now + 3600,
+                "nbf": now,                    # ← 追加
+            },
+            separators=(",", ":"),
         ).encode()
     ).rstrip(b"=").decode()
 
-    # 署名
     signing_input = f"{header_b64}.{payload_b64}"
     raw_sig = hmac.new(
         key=access_key.encode("utf-8"),
@@ -350,8 +353,8 @@ async def negotiate():
 
     token = f"{header_b64}.{payload_b64}.{sig_b64}"
 
-    print(f"[Negotiate] url={client_url}")
-    print(f"[Negotiate] token[:50]={token[:50]}")
+    print(f"[Negotiate] client_url={client_url}")
+    print(f"[Negotiate] token={token[:50]}...")
 
     return {
         "url"        : client_url,
