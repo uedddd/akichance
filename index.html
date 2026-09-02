@@ -215,7 +215,7 @@
             border-bottom: 1px solid #e0e4ea; margin-bottom: 4px;
             display: flex; align-items: center; gap: 6px;
         }
-        .timeline-header { display: flex; margin-bottom: 8px; margin-left: 160px; min-width: 580px; }
+        .timeline-header { display: flex; margin-bottom: 8px; margin-left: 160px; min-width: 740px; }
         .timeline-hour { flex: 1; font-size: 11px; color: #aaa; text-align: left; min-width: 58px; }
         .timeline-body { position: relative; min-width: 740px; }
         .now-line {
@@ -231,7 +231,14 @@
         .timeline-section-row { margin-top: 10px; }
         .timeline-label {
             width: 160px; font-size: 12px; color: #444; flex-shrink: 0;
-            padding-right: 10px; white-space: nowrap;
+            padding-right: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .tl-status-badge {
+            display: inline-block; font-size: 11px; font-weight: 700;
+            border-radius: 4px; padding: 2px 6px; margin-left: 4px; white-space: nowrap;
+        }
+        .tl-status-inuse {
+            background: #fff8f8; color: #e74c3c;
         }
         .timeline-track {
             flex: 1; height: 22px; background: #f0f2f5;
@@ -601,7 +608,7 @@
                 </div>
                 ${buildFilterBarHTML(floor.floor_id)}
                 <div class="timeline-header">
-                    ${[9,10,11,12,13,14,15,16,17,18].map(h=>`<div class="timeline-hour">${h}:00</div>`).join('')}
+                    ${[9,10,11,12,13,14,15,16,17].map(h=>`<div class="timeline-hour">${h}:00</div>`).join('')}
                 </div>
                 <div class="timeline-body" id="tbody-${floor.floor_id}">
                     <div class="now-line" id="nowline-${floor.floor_id}"></div>
@@ -759,13 +766,16 @@
     function tlRowHTML(seat, type) {
         const mon = seat.has_monitor ? ' 🖥️' : '';
         const capStr = seat.capacity ? `（${seat.capacity}名）` : '';
-        const label  = `${seat.seat_name}${capStr}${mon}`;
+        const status = getStatus(seat);
+        const statusBadge = status === 'inuse' ? ' <span class="tl-status-badge tl-status-inuse">🔴 使用中</span>' : '';
+        const label  = `${seat.seat_name}${capStr}${mon}${statusBadge}`;
         const blocks = tlBlocksHTML(seat);
         return `
             <div class="timeline-row" data-type="${type}"
                  data-capacity="${seat.capacity||''}"
                  data-monitor="${!!seat.has_monitor}"
-                 data-seat-id="${seat.seat_id}">
+                 data-seat-id="${seat.seat_id}"
+                 data-status="${status}">
                 <div class="timeline-label">${label}</div>
                 <div class="timeline-track">${blocks}</div>
             </div>`;
