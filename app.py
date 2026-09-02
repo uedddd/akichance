@@ -64,7 +64,10 @@ def get_token_struct() -> bytes:
     )
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
-    return struct.pack(f"<i{len(token_bytes)}s",> pyodbc.Connection:
+    return struct.pack(f"<i{len(token_bytes)}s", len(token_bytes), token_bytes)
+
+
+def open_connection() -> pyodbc.Connection:
     """Azure SQL への認証済みコネクションを返す"""
     return pyodbc.connect(CONNECTION_STRING, attrs_before={1256: get_token_struct()})
 
@@ -88,10 +91,6 @@ def verify_password(password: str, password_hash: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def notify_seat_status(seat_id: int, status: str) -> None:
-    """
-    座席ステータス変更を SignalR で全クライアントに通知する
-    失敗しても処理は続行する
-    """
     try:
         send_message(
             hub="seatHub",
@@ -109,7 +108,7 @@ def notify_seat_status(seat_id: int, status: str) -> None:
 app = FastAPI(
     title="Akichance Reservation / Seat Management API",
     description="Reservation and seat management API for Akichance. (Azure SQL)",
-    version="3.10.0",
+    version="3.11.0-debug",
 )
 
 # ---------------------------------------------------------------------------
@@ -411,20 +410,17 @@ def is_overlapping(
         params.append(exclude_reservation_id)
 
     cursor.execute(query, tuple(params))
-    reservation_count = cursor.fetchone()[0]
-    print(f"[is_overlapping] ① 予約重複件数: {reservation_count}")
-    if reservation_count > 0:
+    if cursor.fetchone()[0] > 0:
         return True
 
-    # ② 座席ステータス確認
+    # ② 座席が in_use の場合
+    # 予約開始時刻 <= 現在時刻 ならブロック
+    # 予約開始時刻 >  現在時刻 なら許可（未来の予約）
     cursor.execute(
         "SELECT status FROM seats WHERE seat_id = ?",
         (seat_id,),
     )
     seat_row = cursor.fetchone()
-    seat_status = seat_row[0] if seat_row else "不明"
-    print(f"[is_overlapping] ② 座席ステータス: {seat_status}")
-
     if seat_row and seat_row[0] == "in_use":
         cursor.execute(
             """
@@ -437,11 +433,9 @@ def is_overlapping(
             (start,),
         )
         start_is_now_or_past = cursor.fetchone()[0]
-        print(f"[is_overlapping] ② start <= GETDATE(): {start_is_now_or_past}, start={start}")
         if start_is_now_or_past:
             return True
 
-    print(f"[is_overlapping] 重複なし → 予約許可")
     return False
 
 
@@ -450,13 +444,6 @@ def is_overlapping(
 # ---------------------------------------------------------------------------
 
 def sync_seat_status(conn: pyodbc.Connection, seat_id: int) -> str:
-    """
-    予約テーブルを参照して座席の実際のステータスを計算し
-    seats テーブルを更新した上で現在のステータス文字列を返す。
-
-    in_use（ボタン押下による使用中）は予約テーブルで管理しないため
-    現在のステータスが in_use の場合は変更しない。
-    """
     cursor = conn.cursor()
 
     cursor.execute(
@@ -801,17 +788,23 @@ def get_reservation(
     return ReservationRead(**row_to_dict(cursor, row))
 
 
-@app.post("/api/reservations", response_model=ReservationRead, status_code=201)
+# ---------------------------------------------------------------------------
+# 予約作成 API（デバッグ版）
+# ★ 原因調査後は通常版に戻してください
+# ---------------------------------------------------------------------------
+
+@app.post("/api/reservations", response_model=None, status_code=201)
 def create_reservation(
     payload: ReservationCreate,
     conn: pyodbc.Connection = Depends(get_connection),
 ):
-    """新規予約を作成する（パスワードをハッシュ化して保存）"""
+    """新規予約を作成する（デバッグ版：重複チェック情報をレスポンスに含める）"""
     assert_time_range(payload.start_datetime, payload.end_datetime)
     assert_reservation_status(payload.status)
 
     cursor = conn.cursor()
 
+    # 座席の存在確認
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
         (payload.seat_id,),
@@ -819,13 +812,91 @@ def create_reservation(
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Seat not found or inactive")
 
-    # 重複チェック（in_use の時間考慮込み）
-    if is_overlapping(conn, payload.seat_id, payload.start_datetime, payload.end_datetime):
+    # ① 予約テーブルの重複件数確認
+    cursor.execute(
+        """
+        SELECT COUNT(1)
+        FROM reservations
+        WHERE seat_id = ?
+          AND status NOT IN ('cancelled', 'expired', 'completed')
+          AND NOT (end_datetime <= ? OR start_datetime >= ?)
+        """,
+        (payload.seat_id, payload.start_datetime, payload.end_datetime),
+    )
+    reservation_count = cursor.fetchone()[0]
+
+    # ② 座席ステータス確認
+    cursor.execute(
+        "SELECT status FROM seats WHERE seat_id = ?",
+        (payload.seat_id,),
+    )
+    seat_row    = cursor.fetchone()
+    seat_status = seat_row[0] if seat_row else "不明"
+
+    # ③ 予約開始時刻と現在時刻の比較
+    cursor.execute(
+        """
+        SELECT CASE
+            WHEN ? <= GETDATE() THEN 1
+            ELSE 0
+        END
+        """,
+        (payload.start_datetime,),
+    )
+    start_is_now_or_past = cursor.fetchone()[0]
+
+    # ④ DB の現在時刻取得
+    cursor.execute("SELECT GETDATE()")
+    db_now = str(cursor.fetchone()[0])
+
+    # デバッグ情報をまとめる
+    debug_info = {
+        "seat_id"             : payload.seat_id,
+        "seat_status"         : seat_status,
+        "reservation_count"   : reservation_count,
+        "start_is_now_or_past": bool(start_is_now_or_past),
+        "start_datetime"      : str(payload.start_datetime),
+        "end_datetime"        : str(payload.end_datetime),
+        "db_now"              : db_now,
+    }
+
+    # 重複チェック判定
+    overlapping = False
+    block_reason = "なし"
+
+    if reservation_count > 0:
+        overlapping  = True
+        block_reason = "予約テーブルに重複あり"
+    elif seat_status == "in_use" and start_is_now_or_past:
+        overlapping  = True
+        block_reason = "座席がin_useかつ予約開始が現在時刻以前"
+
+    debug_info["overlapping"]  = overlapping
+    debug_info["block_reason"] = block_reason
+
+    # 重複がある場合はブロック（デバッグ情報付き）
+    if overlapping:
         raise HTTPException(
             status_code=409,
-            detail="指定した時間帯はすでに予約済みか使用中です",
+            detail={
+                "message": "指定した時間帯はすでに予約済みか使用中です",
+                "debug"  : debug_info,
+            },
         )
 
+    # 重複がない場合も予約はせずデバッグ情報を返す
+    # ★ 原因調査が終わったらこの raise を削除して下の予約処理を有効にする
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "message": "デバッグモード：重複なしと判定されました（予約は実行されていません）",
+            "debug"  : debug_info,
+        },
+    )
+
+    # ------------------------------------
+    # 以下は調査完了後に有効化する通常処理
+    # ------------------------------------
     pw_hash = hash_password(payload.password)
 
     try:
@@ -1114,7 +1185,6 @@ def sync_outlook_reservation(
     assert_time_range(payload.start_time, payload.end_time)
     cursor = conn.cursor()
 
-    # 座席の存在確認
     cursor.execute(
         "SELECT seat_id FROM seats WHERE seat_name = ? AND is_active = 1",
         (payload.seat_number,),
@@ -1127,7 +1197,6 @@ def sync_outlook_reservation(
         )
     seat_id = seat[0]
 
-    # ユーザー取得
     cursor.execute(
         "SELECT user_id FROM users WHERE email = ?",
         (payload.email,),
@@ -1140,7 +1209,6 @@ def sync_outlook_reservation(
         )
     user_id = user[0]
 
-    # 同一Outlookイベントの既存予約確認
     cursor.execute(
         "SELECT reservation_id FROM reservations WHERE outlook_event_id = ?",
         (payload.outlook_event_id,),
@@ -1148,7 +1216,6 @@ def sync_outlook_reservation(
     existing = cursor.fetchone()
 
     if existing is not None:
-        # 更新の場合も重複チェック（自分自身を除外・in_use時間考慮済み）
         reservation_id = existing[0]
 
         if is_overlapping(
@@ -1179,7 +1246,6 @@ def sync_outlook_reservation(
         conn.commit()
 
     else:
-        # 新規: 重複チェック（in_use 時間考慮込み）
         if is_overlapping(conn, seat_id, payload.start_time, payload.end_time):
             raise HTTPException(
                 status_code=409,
