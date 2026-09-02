@@ -1,84 +1,46 @@
-# ============================================================
-# Windows 用セットアップ手順
-# ============================================================
-# 
-# 1. ODBC Driver 18 for SQL Server のインストール (Windows)
-#    - https://learn.microsoft.com/ja-jp/sql/connect/odbc/download-odbc-driver-for-sql-server
-#    から ODBC Driver 18 for SQL Server をダウンロードしてインストール
-#    または以下のコマンドで winget を使用してインストール:
-#    winget install Microsoft.ODBCDriver18forSQLServer
-#
-# 2. Python ライブラリのインストール
-#    pip install -r requirements.txt
-#
-# 3. 環境変数の設定（.env ファイル作成または OS の環境変数に設定）
-#    AZURE_SQL_SERVER=akichanceserver.database.windows.net
-#    AZURE_SQL_DATABASE=akichanceDB
-#    AZURE_SQL_USERNAME=g735218@mytecno23.onmicrosoft.com
-#    AZURE_SQL_PASSWORD=your-actual-password
-#
-# ============================================================
-# Python 3.10以前でも `X | Y` 型ヒント構文を使えるようにする将来互換インポート
 from __future__ import annotations
 
-# OSの環境変数を取得するための標準ライブラリ
+import json
 import os
+import hashlib as _hashlib
 from pathlib import Path
 
-# .env ファイルを読み込むためのライブラリ
 try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None
 
-# 日時データを扱うための標準ライブラリ
 from datetime import datetime
-
-# 文字列をバイナリへ変換して Azure SQL の Entra トークンを送るための標準ライブラリ
 import struct
-
-# 型ヒント用: ジェネレータ・リスト・Optional型のサポート
+import time
+import hmac
+import hashlib
+import base64
 from typing import Iterator, List, Optional
 
-# SQL Server / Azure SQL への接続ライブラリ（pip install pyodbc）
 import pyodbc
-
-# Azure Entra ID 認証（サービスプリンシパル）
 from azure.identity import ClientSecretCredential
 
-# .env ファイルを読み込む
 env_file = Path(__file__).parent / ".env"
 if env_file.exists() and load_dotenv is not None:
     load_dotenv(env_file)
 
-# FastAPI本体・依存性注入・HTTPエラー・クエリパラメータ
+from signalr_service import send_message
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
-
-# Pydanticのベースモデル・メール検証・フィールド定義
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # データベース接続設定
 # ---------------------------------------------------------------------------
 
-# Azure SQL Serverのホスト名を環境変数から取得する
-# 形式: <サーバー名>.database.windows.net
-AZURE_SQL_SERVER: str = os.getenv("AZURE_SQL_SERVER", "akichanceserver.database.windows.net")
-
-# 接続先のデータベース名を環境変数から取得する
-AZURE_SQL_DATABASE: str = os.getenv("AZURE_SQL_DATABASE", "akichanceDB")  
-
-# Azure SQL のサービスプリンシパル認証設定
-AZURE_CLIENT_ID: str = os.getenv("AZURE_CLIENT_ID", "")
+AZURE_SQL_SERVER: str  = os.getenv("AZURE_SQL_SERVER", "akichanceserver.database.windows.net")
+AZURE_SQL_DATABASE: str = os.getenv("AZURE_SQL_DATABASE", "akichanceDB")
+AZURE_CLIENT_ID: str   = os.getenv("AZURE_CLIENT_ID", "")
 AZURE_CLIENT_SECRET: str = os.getenv("AZURE_CLIENT_SECRET", "")
-AZURE_TENANT_ID: str = os.getenv("AZURE_TENANT_ID", "")
+AZURE_TENANT_ID: str   = os.getenv("AZURE_TENANT_ID", "")
+AZURE_SQL_DRIVER: str  = os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server")
 
-# 使用するODBCドライバー名を環境変数から取得する
-# Azure環境では "ODBC Driver 18 for SQL Server" が推奨される
-AZURE_SQL_DRIVER: str = os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server")
-
-# 接続文字列の共通部分を生成する
 CONNECTION_STRING: str = (
     f"DRIVER={{{AZURE_SQL_DRIVER}}};"
     f"SERVER={AZURE_SQL_SERVER};"
@@ -90,803 +52,916 @@ CONNECTION_STRING: str = (
 
 
 def get_token_struct() -> bytes:
-    """
-    Azure SQL へ Service Principal 認証で接続するためのアクセストークンを
-    pyodbc の attrs_before 形式に変換して返す。
-    """
+    """Azure SQL へ Service Principal 認証でアクセスするためのトークンを生成する"""
     if not all([AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID]):
         raise RuntimeError(
             "AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID が設定されていません"
         )
-
     credential = ClientSecretCredential(
         tenant_id=AZURE_TENANT_ID,
         client_id=AZURE_CLIENT_ID,
         client_secret=AZURE_CLIENT_SECRET,
     )
-
     token = credential.get_token("https://database.windows.net/.default")
     token_bytes = token.token.encode("utf-16-le")
-    return struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+    return struct.pack(f"<i{len(token_bytes)}s", len(token_bytes), token_bytes)
 
 
 def open_connection() -> pyodbc.Connection:
-    """
-    Azure SQL へ接続する pyodbc コネクションを生成する。
-    """
+    """Azure SQL への認証済みコネクションを返す"""
     return pyodbc.connect(CONNECTION_STRING, attrs_before={1256: get_token_struct()})
 
+
 # ---------------------------------------------------------------------------
-# FastAPIアプリケーションの初期化
+# パスワードユーティリティ
 # ---------------------------------------------------------------------------
 
-# FastAPIインスタンスを生成し、APIのメタ情報を設定する
-# title/description/versionはSwagger UI（/docs）に表示される
+def hash_password(password: str) -> str:
+    """4桁パスワードをSHA-256でハッシュ化して返す"""
+    return _hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """入力パスワードとハッシュを照合する"""
+    return hash_password(password) == password_hash
+
+
+# ---------------------------------------------------------------------------
+# FastAPI 初期化
+# ---------------------------------------------------------------------------
+
 app = FastAPI(
     title="Akichance Reservation / Seat Management API",
     description="Reservation and seat management API for Akichance. (Azure SQL)",
-    version="3.0.0",
+    version="3.6.0",
 )
 
 # ---------------------------------------------------------------------------
-# Pydanticモデル定義（座席）
+# Pydantic モデル定義（フロア）
 # ---------------------------------------------------------------------------
 
-# 座席データの共通フィールドを定義するベースモデル
-class SeatBase(BaseModel):
-    # 座席番号: 必須項目（...はPydanticで「必須」を意味する）
-    seat_number: str = Field(..., description="Unique seat identifier")
-    # エリア・ゾーン: 任意項目、未指定時はNone
-    zone: Optional[str] = Field(None, description="Area or zone of the seat")
-    # 有効フラグ: デフォルトTrue（予約受付中）
-    is_active: bool = Field(True, description="Whether the seat is available for reservation")
-    # 補足説明: 任意項目
-    description: Optional[str] = None
+class FloorRead(BaseModel):
+    floor_id: int
+    floor_name: str
+    floor_order: int
+    is_active: bool
+    model_config = {"from_attributes": True}
 
 
-# 座席作成時に使用するモデル（SeatBaseをそのまま継承）
-class SeatCreate(SeatBase):
-    pass
+# ---------------------------------------------------------------------------
+# Pydantic モデル定義（座席）
+# ---------------------------------------------------------------------------
+
+class SeatRead(BaseModel):
+    seat_id: int
+    floor_id: int
+    seat_name: str
+    status: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    seat_type: str
+    capacity: Optional[int] = None
+    has_monitor: bool
+    model_config = {"from_attributes": True}
 
 
-# 座席読み取り時に使用するモデル（DBのidフィールドを追加）
-class SeatRead(SeatBase):
-    # DBが自動採番するID
-    id: int
+class SeatCreate(BaseModel):
+    floor_id: int           = Field(..., description="所属フロアID")
+    seat_name: str          = Field(..., description="座席名（表示用）")
+    status: str             = Field("empty", description="座席ステータス")
+    is_active: bool         = Field(True, description="予約受付フラグ")
+    seat_type: str          = Field("desk", description="座席種別")
+    capacity: Optional[int] = Field(None, description="収容人数")
+    has_monitor: bool       = Field(False, description="モニター有無")
 
-    # Pydanticの設定クラス
-    class Config:
-        # ORMオブジェクトや辞書からの変換を許可する
-        orm_mode = True
 
-
-# 座席更新時に使用するモデル（全フィールドをOptionalにして部分更新に対応）
 class SeatUpdate(BaseModel):
-    # 更新対象フィールドは全て任意（指定されたフィールドのみ更新される）
-    seat_number: Optional[str] = None
-    zone: Optional[str] = None
-    is_active: Optional[bool] = None
-    description: Optional[str] = None
+    floor_id: Optional[int]    = None
+    seat_name: Optional[str]   = None
+    status: Optional[str]      = None
+    is_active: Optional[bool]  = None
+    seat_type: Optional[str]   = None
+    capacity: Optional[int]    = None
+    has_monitor: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
-# Pydanticモデル定義（予約）
+# Pydantic モデル定義（予約）
 # ---------------------------------------------------------------------------
 
-# 予約データの共通フィールドを定義するベースモデル
-class ReservationBase(BaseModel):
-    # 予約者名: 必須項目
-    user_name: str = Field(..., description="Name of the user making the reservation")
-    # メールアドレス: 必須項目（EmailStrでフォーマット自動バリデーション）
-    email: EmailStr = Field(..., description="User email address")
-    # 予約する座席のID: 必須項目
-    seat_id: int = Field(..., description="Reserved seat ID")
-    # 予約開始時刻: 必須項目
-    start_time: datetime = Field(..., description="Reservation start time")
-    # 予約終了時刻: 必須項目
-    end_time: datetime = Field(..., description="Reservation end time")
-    # 予約ステータス: デフォルトは"confirmed"（確定済み）
-    status: str = Field("confirmed", description="Reservation status")
+class ReservationRead(BaseModel):
+    reservation_id: int
+    seat_id: int
+    user_id: int
+    outlook_event_id: Optional[str]  = None
+    start_datetime: datetime
+    end_datetime: datetime
+    status: str
+    notified_at: Optional[datetime]  = None
+    created_at: datetime
+    updated_at: datetime
+    model_config = {"from_attributes": True}
 
 
-# 予約作成時に使用するモデル（ReservationBaseをそのまま継承）
-class ReservationCreate(ReservationBase):
-    pass
+class ReservationCreate(BaseModel):
+    """予約作成リクエストモデル（パスワード必須）"""
+    user_id: int                    = Field(..., description="予約者のユーザーID")
+    seat_id: int                    = Field(..., description="予約する座席ID")
+    start_datetime: datetime        = Field(..., description="予約開始日時")
+    end_datetime: datetime          = Field(..., description="予約終了日時")
+    status: str                     = Field("reserved", description="予約ステータス")
+    outlook_event_id: Optional[str] = Field(None, description="OutlookイベントID")
+    password: str                   = Field(..., description="キャンセル用4桁パスワード")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if not v.isdigit() or len(v) != 4:
+            raise ValueError("パスワードは4桁の数字にしてください")
+        return v
 
 
-# 予約読み取り時に使用するモデル（DBのidフィールドを追加）
-class ReservationRead(ReservationBase):
-    # DBが自動採番するID
-    id: int
-
-    # Pydanticの設定クラス
-    class Config:
-        # ORMオブジェクトや辞書からの変換を許可する
-        orm_mode = True
-
-
-# 予約更新時に使用するモデル（全フィールドをOptionalにして部分更新に対応）
 class ReservationUpdate(BaseModel):
-    # 更新対象フィールドは全て任意（指定されたフィールドのみ更新される）
-    user_name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    seat_id: Optional[int] = None
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    status: Optional[str] = None
+    user_id: Optional[int]            = None
+    seat_id: Optional[int]            = None
+    start_datetime: Optional[datetime] = None
+    end_datetime: Optional[datetime]   = None
+    status: Optional[str]             = None
+    outlook_event_id: Optional[str]   = None
+
+
+class ReservationCancelRequest(BaseModel):
+    """予約キャンセルリクエスト（パスワード照合）"""
+    password: str = Field(..., description="予約時に設定した4桁パスワード")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if not v.isdigit() or len(v) != 4:
+            raise ValueError("パスワードは4桁の数字にしてください")
+        return v
 
 
 # ---------------------------------------------------------------------------
-# データベース接続・初期化
+# Power Automate 連携モデル
+# ---------------------------------------------------------------------------
+
+class OutlookReservationSync(BaseModel):
+    """Power Automate から Outlook 予約データを受信するモデル"""
+    outlook_event_id: str = Field(..., description="Outlook イベント ID")
+    user_name: str = Field(..., description="予約者名")
+    email: str = Field(..., description="予約者メール")
+    seat_number: str = Field(..., description="席名（例：A-01）")
+    start_time: datetime = Field(..., description="予約開始日時")
+    end_time: datetime = Field(..., description="予約終了日時")
+
+
+class CancelResponse(BaseModel):
+    status: str
+    reservation_id: int
+    message: str
+
+
+# ---------------------------------------------------------------------------
+# DB 接続・ユーティリティ
 # ---------------------------------------------------------------------------
 
 def get_connection() -> Iterator[pyodbc.Connection]:
-    """
-    Azure SQLへの接続を生成し、FastAPIの依存性注入に提供するジェネレータ関数。
-    yieldの前後でリクエストのライフサイクルに合わせた接続管理を行う。
-    """
-    # Entra 認証済みトークンをつけて Azure SQL に接続する
     connection = open_connection()
-
-    # pyodbc はデフォルトで自動コミットが無効のため明示的に無効化を宣言する
-    # これによりcommit()/rollback()で手動トランザクション管理が可能になる
     connection.autocommit = False
-
     try:
-        # yieldで接続をエンドポイント関数に渡す（コンテキストマネージャ的な役割）
         yield connection
     except Exception:
-        # 例外が発生した場合はロールバックしてDBの整合性を保つ
         connection.rollback()
-        # 例外を再送出して FastAPI のエラーハンドラに処理を委譲する
         raise
     finally:
-        # リクエスト処理が完了（正常・例外問わず）したら必ず接続を閉じる
         connection.close()
 
 
 def row_to_dict(cursor: pyodbc.Cursor, row: pyodbc.Row) -> dict:
-    """
-    pyodbcのRowオブジェクトをdictに変換するユーティリティ関数。
-    pyodbcはRealDictCursorのような自動dict変換機能を持たないため、
-    カーソルのdescriptionからカラム名を取得して辞書を生成する。
-    """
-    # cursor.descriptionは[(カラム名, 型, ...), ...]の形式で返る
-    # index 0 がカラム名なので、それをキーとしてrowの値と対応させる
     columns = [column[0] for column in cursor.description]
-
-    # カラム名と値をzipで対応させてdictを生成する
     return dict(zip(columns, row))
 
 
 def init_db() -> None:
-    """
-    アプリケーション起動時にDBテーブルを初期化する関数。
-    テーブルが存在しない場合のみ作成する（既存データは保持される）。
-    ただし、サービスプリンシパルにCREATE TABLE権限がない場合は
-    起動時エラーにせず警告のみで続行する。
-    """
-    # アプリ起動専用の接続を生成する（get_connectionとは別に直接接続）
-    connection = open_connection()
-
-    # DDL文は自動コミットモードで実行する必要がある
-    # Azure SQL ではCREATE TABLEなどのDDLはトランザクション外で実行することが推奨される
-    connection.autocommit = True
-
-    # カーソルを生成してSQLを実行できる状態にする
-    cursor = connection.cursor()
-
+    """起動時のDB接続確認"""
     try:
-        # seatsテーブルが存在しない場合のみ作成する
-        # Azure SQL(T-SQL)ではIF NOT EXISTS構文がないため
-        # INFORMATION_SCHEMA.TABLESを使ってテーブルの存在確認を行う
-        cursor.execute(
-            """
-            IF NOT EXISTS (
-                SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_NAME = 'seats'
-            )
-            BEGIN
-                CREATE TABLE seats (
-                    id          INT IDENTITY(1,1) PRIMARY KEY,
-                    seat_number NVARCHAR(100) NOT NULL UNIQUE,
-                    zone        NVARCHAR(100),
-                    is_active   BIT NOT NULL DEFAULT 1,
-                    description NVARCHAR(MAX)
-                )
-            END
-            """
-            # IDENTITY(1,1)  : 1から始まり1ずつ増加する自動採番（PostgreSQLのSERIALに相当）
-            # NVARCHAR       : Unicodeに対応した可変長文字列型（日本語対応）
-            # BIT            : 0/1の2値型（PostgreSQLのBOOLEAN、SQLiteのINTEGERに相当）
-            # NVARCHAR(MAX)  : 最大2GBまで格納できる大容量文字列型
+        connection = open_connection()
+        cursor = connection.cursor()
+        cursor.execute("SELECT COUNT(1) FROM floors")
+        floors_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(1) FROM seats")
+        seats_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(1) FROM reservations")
+        res_count = cursor.fetchone()[0]
+        print(
+            f"[DB] 接続成功 / floors: {floors_count}件 "
+            f"/ seats: {seats_count}件 / reservations: {res_count}件"
         )
-
-        # reservationsテーブルが存在しない場合のみ作成する
-        cursor.execute(
-            """
-            IF NOT EXISTS (
-                SELECT 1 FROM INFORMATION_SCHEMA.TABLES 
-                WHERE TABLE_NAME = 'reservations'
-            )
-            BEGIN
-                CREATE TABLE reservations (
-                    id         INT IDENTITY(1,1) PRIMARY KEY,
-                    user_name  NVARCHAR(200) NOT NULL,
-                    email      NVARCHAR(254) NOT NULL,
-                    seat_id    INT NOT NULL,
-                    start_time DATETIME2 NOT NULL,
-                    end_time   DATETIME2 NOT NULL,
-                    status     NVARCHAR(50) NOT NULL,
-                    FOREIGN KEY (seat_id) REFERENCES seats(id)
-                )
-            END
-            """
-            # DATETIME2: T-SQLの高精度日時型（タイムゾーンなし、精度は最大100ナノ秒）
-            # タイムゾーン付きで保存する場合はDATETIMEOFFSETを使用する
-            # email用のNVARCHAR(254)はRFC 5321のメールアドレス最大長に準拠
-        )
-    except pyodbc.ProgrammingError as exc:
-        message = str(exc)
-        if "CREATE TABLE permission denied" in message or "permission denied in database" in message:
-            print(
-                "WARNING: Azure SQL user does not have CREATE TABLE permission. "
-                "Skipping schema initialization."
-            )
-        else:
-            raise
-    finally:
-        # DDL自動コミットモードのため明示的なcommitは不要だが、接続を閉じる
         connection.close()
+    except Exception as e:
+        print(f"[DB] init_db エラー（起動続行）: {e}")
 
 
 # ---------------------------------------------------------------------------
 # アプリケーションイベント
 # ---------------------------------------------------------------------------
 
-# FastAPIサーバーの起動時に自動で実行されるイベントハンドラ
 @app.on_event("startup")
 def startup_event() -> None:
-    # DBテーブルの初期化処理を呼び出す
     init_db()
 
 
+# ---------------------------------------------------------------------------
+# SignalR ネゴシエーション
+# ---------------------------------------------------------------------------
+
+@app.post("/api/negotiate/negotiate")
+async def negotiate():
+    conn_str = os.getenv("SIGNALR_CONNECTION_STRING", "")
+    hub_name = os.getenv("SIGNALR_HUB_NAME", "seatHub")
+
+    if not conn_str:
+        return {"url": "", "accessToken": "", "disabled": True}
+
+    parts: dict[str, str] = {}
+    for part in conn_str.strip().split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            parts[k.strip()] = v.strip()
+
+    endpoint   = parts.get("Endpoint", "").rstrip("/")
+    access_key = parts.get("AccessKey", "")
+    audience   = f"{endpoint}/client/?hub={hub_name}"
+    now        = int(time.time())
+
+    header = (
+        base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+        .rstrip(b"=").decode()
+    )
+    payload_b64 = (
+        base64.urlsafe_b64encode(
+            json.dumps({"aud": audience, "exp": now + 3600, "iat": now}).encode()
+        )
+        .rstrip(b"=").decode()
+    )
+    signing_input = f"{header}.{payload_b64}"
+    raw_sig = hmac.new(
+        key=access_key.encode("utf-8"),
+        msg=signing_input.encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).digest()
+    signature = base64.urlsafe_b64encode(raw_sig).rstrip(b"=").decode()
+
+    return {"url": audience, "accessToken": f"{header}.{payload_b64}.{signature}"}
+
+
+# ---------------------------------------------------------------------------
+# 静的ファイル
+# ---------------------------------------------------------------------------
+
 @app.get("/", include_in_schema=False)
 def serve_index() -> FileResponse:
-    """
-    ルートURLにアクセスした場合、予約画面のHTMLを返す。
-    Swagger UIは /docs で引き続き利用可能。
-    """
     return FileResponse(Path(__file__).parent / "index.html")
 
 
 # ---------------------------------------------------------------------------
-# ユーティリティ関数
+# 共通バリデーション
 # ---------------------------------------------------------------------------
 
-def assert_time_range(start_time: datetime, end_time: datetime) -> None:
-    """
-    終了時刻が開始時刻より後であることを検証する関数。
-    不正な場合はHTTP 400エラーを送出する。
-    """
-    # 終了時刻が開始時刻以前の場合は不正な入力としてエラーを返す
-    if end_time <= start_time:
-        raise HTTPException(status_code=400, detail="end_time must be after start_time")
+VALID_RESERVATION_STATUS = {"reserved", "in_use", "cancelled", "expired", "completed"}
+
+
+def assert_time_range(start: datetime, end: datetime) -> None:
+    if end <= start:
+        raise HTTPException(
+            status_code=400,
+            detail="end_datetime は start_datetime より後にしてください",
+        )
+
+
+def assert_reservation_status(status: str) -> None:
+    if status not in VALID_RESERVATION_STATUS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"status は {VALID_RESERVATION_STATUS} のいずれかにしてください",
+        )
 
 
 def is_overlapping(
     conn: pyodbc.Connection,
     seat_id: int,
-    start_time: datetime,
-    end_time: datetime,
-    exclude_id: Optional[int] = None,
+    start: datetime,
+    end: datetime,
+    exclude_reservation_id: Optional[int] = None,
 ) -> bool:
-    """
-    指定した座席・時間帯に重複する予約が存在するか確認する関数。
-    exclude_idを指定すると、そのIDの予約を除外して判定する（更新時に自己除外するため）。
-    """
-    # 重複判定SQL: 既存予約の終了が新規開始より前 OR 既存開始が新規終了より後 → 重複なし
-    # それ以外は重複あり（NOT条件の否定）
-    # pyodbcのプレースホルダーは ? を使用する（psycopg2の%sと異なる）
     query = """
-        SELECT COUNT(1) AS cnt
+        SELECT COUNT(1)
         FROM reservations
         WHERE seat_id = ?
-          AND NOT (end_time <= ? OR start_time >= ?)
+          AND status NOT IN ('cancelled', 'expired', 'completed')
+          AND NOT (end_datetime <= ? OR start_datetime >= ?)
     """
-    # プレースホルダーに対応するパラメータリストを作成する
-    params: list = [seat_id, start_time, end_time]
+    params: list = [seat_id, start, end]
 
-    # 更新時など自分自身の予約を除外する場合はAND id != ?を追加する
-    if exclude_id is not None:
-        query += " AND id != ?"
-        params.append(exclude_id)
+    if exclude_reservation_id is not None:
+        query += " AND reservation_id != ?"
+        params.append(exclude_reservation_id)
 
-    # カーソルを生成してSQLを実行する
     cursor = conn.cursor()
     cursor.execute(query, tuple(params))
-
-    # 結果を1行取得する
-    row = cursor.fetchone()
-
-    # T-SQLではCOUNT結果のカラム名エイリアスがrow_to_dictなしでも
-    # インデックスでアクセス可能なため、ここではインデックス0で取得する
-    return row[0] > 0
+    return cursor.fetchone()[0] > 0
 
 
 # ---------------------------------------------------------------------------
-# 座席APIエンドポイント
+# 過去予約削除 API（フロント起動時に呼び出す）
 # ---------------------------------------------------------------------------
 
-# 座席一覧を取得するGETエンドポイント
-@app.get("/api/seats", response_model=List[SeatRead])
-def list_seats(
-    # クエリパラメータ: ?active_only=true でアクティブな座席のみ取得
-    active_only: bool = Query(False, description="Return only active seats"),
-    # 依存性注入でAzure SQL接続を受け取る
+@app.delete("/api/reservations/cleanup", status_code=200)
+def cleanup_past_reservations(
     conn: pyodbc.Connection = Depends(get_connection),
 ):
-    # 基本クエリ（全件取得）
-    query = "SELECT * FROM seats"
+    """現在時刻より終了日時が過去の予約を削除する"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            DELETE FROM reservations
+            WHERE end_datetime < GETDATE()
+              AND status NOT IN ('cancelled')
+            """
+        )
+        deleted_count = cursor.rowcount
+        conn.commit()
+        print(f"[Cleanup] 過去予約 {deleted_count} 件削除")
+        return {"deleted": deleted_count, "message": f"{deleted_count}件の過去予約を削除しました"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # active_onlyがTrueの場合はWHERE句を追加してフィルタリングする
-    if active_only:
-        # Azure SQL(T-SQL)のBIT型は1/0で比較する（PostgreSQLのTRUE/FALSEと異なる）
-        query += " WHERE is_active = 1"
 
-    # カーソルを生成してSQLを実行する
+# ---------------------------------------------------------------------------
+# フロア API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/floors", response_model=List[FloorRead])
+def list_floors(conn: pyodbc.Connection = Depends(get_connection)):
     cursor = conn.cursor()
-    cursor.execute(query)
-
-    # 全行を取得してdictのリストに変換する
+    cursor.execute(
+        """
+        SELECT floor_id, floor_name, floor_order, is_active
+        FROM floors
+        WHERE is_active = 1
+        ORDER BY floor_order
+        """
+    )
     rows = cursor.fetchall()
+    return [FloorRead(**row_to_dict(cursor, row)) for row in rows]
 
-    # 各行をrow_to_dictでdict化してSeatReadモデルに変換し、リストとして返す
+
+# ---------------------------------------------------------------------------
+# 座席 API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/seats", response_model=List[SeatRead])
+def list_seats(
+    active_only: bool       = Query(False, description="True: 有効な座席のみ取得"),
+    floor_id: Optional[int] = Query(None,  description="フロアIDで絞り込み"),
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    query = """
+        SELECT seat_id, floor_id, seat_name, status, is_active,
+               created_at, updated_at, seat_type, capacity, has_monitor
+        FROM seats
+        WHERE 1=1
+    """
+    params: list = []
+
+    if active_only:
+        query += " AND is_active = 1"
+    if floor_id is not None:
+        query += " AND floor_id = ?"
+        params.append(floor_id)
+
+    query += " ORDER BY floor_id, seat_id"
+
+    cursor = conn.cursor()
+    cursor.execute(query, tuple(params))
+    rows = cursor.fetchall()
     return [SeatRead(**row_to_dict(cursor, row)) for row in rows]
 
 
-# 新規座席を作成するPOSTエンドポイント（成功時201を返す）
-@app.post("/api/seats", response_model=SeatRead, status_code=201)
-def create_seat(
-    # リクエストボディをSeatCreateモデルとして受け取る
-    seat: SeatCreate,
-    # 依存性注入でAzure SQL接続を受け取る
-    conn: pyodbc.Connection = Depends(get_connection),
-):
-    # カーソルを生成する
+@app.get("/api/seats/{seat_id}", response_model=SeatRead)
+def get_seat(seat_id: int, conn: pyodbc.Connection = Depends(get_connection)):
     cursor = conn.cursor()
-
-    # INSERT文を実行する
-    # T-SQLではRETURNING構文が使えないため、SCOPE_IDENTITY()でINSERT後のIDを取得する
-    # SCOPE_IDENTITY()は現在のスコープで最後にINSERTされたIDENTITY値を返す
     cursor.execute(
         """
-        INSERT INTO seats (seat_number, zone, is_active, description)
-        VALUES (?, ?, ?, ?);
-        SELECT SCOPE_IDENTITY() AS id;
+        SELECT seat_id, floor_id, seat_name, status, is_active,
+               created_at, updated_at, seat_type, capacity, has_monitor
+        FROM seats WHERE seat_id = ?
         """,
-        # BIT型のis_activeはPythonのboolをintに変換して渡す（True→1, False→0）
-        (seat.seat_number, seat.zone, int(seat.is_active), seat.description),
+        (seat_id,),
     )
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Seat not found")
+    return SeatRead(**row_to_dict(cursor, row))
 
-    # 複数のSQL文を実行した場合、nextset()で次の結果セットに移動する
-    # ここではSELECT SCOPE_IDENTITY()の結果セットに移動する
+
+@app.post("/api/seats", response_model=SeatRead, status_code=201)
+def create_seat(seat: SeatCreate, conn: pyodbc.Connection = Depends(get_connection)):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO seats
+            (floor_id, seat_name, status, is_active, seat_type,
+             capacity, has_monitor, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE());
+        SELECT SCOPE_IDENTITY() AS new_id;
+        """,
+        (
+            seat.floor_id, seat.seat_name, seat.status,
+            int(seat.is_active), seat.seat_type,
+            seat.capacity, int(seat.has_monitor),
+        ),
+    )
     cursor.nextset()
-
-    # SCOPE_IDENTITY()の結果からINSERTしたIDを取得する
-    seat_id = int(cursor.fetchone()[0])
-
-    # INSERTした結果をDBに確定させる
+    new_id = int(cursor.fetchone()[0])
     conn.commit()
 
-    # 作成した座席を再取得する
-    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
-    row = cursor.fetchone()
-
-    # 取得した行をSeatReadモデルに変換して返す
-    return SeatRead(**row_to_dict(cursor, row))
-
-
-# 指定IDの座席を取得するGETエンドポイント
-@app.get("/api/seats/{seat_id}", response_model=SeatRead)
-def get_seat(
-    # パスパラメータとして座席IDを受け取る
-    seat_id: int,
-    # 依存性注入でAzure SQL接続を受け取る
-    conn: pyodbc.Connection = Depends(get_connection),
-):
-    # 指定IDの座席を検索する
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
-    row = cursor.fetchone()
-
-    # 座席が存在しない場合は404エラーを返す
-    if row is None:
-        raise HTTPException(status_code=404, detail="Seat not found")
-
-    # 取得した行をSeatReadモデルに変換して返す
-    return SeatRead(**row_to_dict(cursor, row))
-
-
-# 指定IDの座席を更新するPUTエンドポイント
-@app.put("/api/seats/{seat_id}", response_model=SeatRead)
-def update_seat(
-    # パスパラメータとして座席IDを受け取る
-    seat_id: int,
-    # リクエストボディをSeatUpdateモデルとして受け取る
-    payload: SeatUpdate,
-    # 依存性注入でAzure SQL接続を受け取る
-    conn: pyodbc.Connection = Depends(get_connection),
-):
-    # 更新対象の座席が存在するか確認する
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
-    row = cursor.fetchone()
-
-    # 座席が存在しない場合は404エラーを返す
-    if row is None:
-        raise HTTPException(status_code=404, detail="Seat not found")
-
-    # 現在のDB値をdictとして取得する
-    updated = row_to_dict(cursor, row)
-
-    # リクエストで指定されたフィールドのみを取得する（未指定フィールドは除外）
-    update_data = payload.dict(exclude_unset=True)
-
-    # 現在のDB値に更新データを上書きする（部分更新）
-    updated.update(update_data)
-
-    # 更新SQLを実行する
     cursor.execute(
         """
-        UPDATE seats 
-        SET seat_number = ?, 
-            zone        = ?, 
-            is_active   = ?, 
-            description = ? 
-        WHERE id = ?
+        SELECT seat_id, floor_id, seat_name, status, is_active,
+               created_at, updated_at, seat_type, capacity, has_monitor
+        FROM seats WHERE seat_id = ?
         """,
-        # BIT型のis_activeはintに変換して渡す（True→1, False→0）
+        (new_id,),
+    )
+    return SeatRead(**row_to_dict(cursor, cursor.fetchone()))
+
+
+@app.put("/api/seats/{seat_id}", response_model=SeatRead)
+def update_seat(
+    seat_id: int,
+    payload: SeatUpdate,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT seat_id, floor_id, seat_name, status, is_active,
+               created_at, updated_at, seat_type, capacity, has_monitor
+        FROM seats WHERE seat_id = ?
+        """,
+        (seat_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Seat not found")
+
+    current     = row_to_dict(cursor, row)
+    update_data = payload.model_dump(exclude_unset=True)
+    current.update(update_data)
+
+    cursor.execute(
+        """
+        UPDATE seats
+        SET floor_id    = ?, seat_name  = ?, status     = ?,
+            is_active   = ?, seat_type  = ?, capacity   = ?,
+            has_monitor = ?, updated_at = GETDATE()
+        WHERE seat_id = ?
+        """,
         (
-            updated["seat_number"],
-            updated["zone"],
-            int(updated["is_active"]),
-            updated["description"],
+            current["floor_id"], current["seat_name"], current["status"],
+            int(current["is_active"]), current["seat_type"],
+            current["capacity"], int(current["has_monitor"]),
             seat_id,
         ),
     )
-
-    # 更新内容をDBに確定させる
     conn.commit()
 
-    # 更新後の座席データを再取得する
-    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
-    row = cursor.fetchone()
+    try:
+        send_message(
+            hub="seatHub",
+            target="seatStatusUpdated",
+            arguments=[{"seatId": seat_id, "status": current["status"]}],
+        )
+    except Exception as e:
+        print(f"[SignalR] 通知失敗（処理続行）: {e}")
 
-    # 取得した行をSeatReadモデルに変換して返す
-    return SeatRead(**row_to_dict(cursor, row))
+    cursor.execute(
+        """
+        SELECT seat_id, floor_id, seat_name, status, is_active,
+               created_at, updated_at, seat_type, capacity, has_monitor
+        FROM seats WHERE seat_id = ?
+        """,
+        (seat_id,),
+    )
+    return SeatRead(**row_to_dict(cursor, cursor.fetchone()))
 
 
-# 指定IDの座席を削除するDELETEエンドポイント（成功時204を返す）
 @app.delete("/api/seats/{seat_id}", status_code=204)
-def delete_seat(
-    # パスパラメータとして座席IDを受け取る
-    seat_id: int,
-    # 依存性注入でAzure SQL接続を受け取る
-    conn: pyodbc.Connection = Depends(get_connection),
-):
-    # 削除対象の座席が存在するか確認する
+def delete_seat(seat_id: int, conn: pyodbc.Connection = Depends(get_connection)):
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM seats WHERE id = ?", (seat_id,))
-
-    # 座席が存在しない場合は404エラーを返す
+    cursor.execute("SELECT seat_id FROM seats WHERE seat_id = ?", (seat_id,))
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Seat not found")
 
-    # その座席に紐づく予約が存在するか確認する
-    cursor.execute(
-        "SELECT COUNT(1) AS cnt FROM reservations WHERE seat_id = ?",
-        (seat_id,),
-    )
-    # 予約が1件以上存在する場合は削除を拒否して400エラーを返す（データ整合性の保護）
+    cursor.execute("SELECT COUNT(1) FROM reservations WHERE seat_id = ?", (seat_id,))
     if cursor.fetchone()[0] > 0:
-        raise HTTPException(status_code=400, detail="Seat has existing reservations")
+        raise HTTPException(status_code=400, detail="この座席には予約が存在するため削除できません")
 
-    # 座席を削除する
-    cursor.execute("DELETE FROM seats WHERE id = ?", (seat_id,))
-
-    # 削除をDBに確定させる
+    cursor.execute("DELETE FROM seats WHERE seat_id = ?", (seat_id,))
     conn.commit()
-
-    # 204 No Contentのレスポンスを返す（ボディなし）
     return None
 
 
 # ---------------------------------------------------------------------------
-# 空き座席検索エンドポイント
+# 空き座席検索
 # ---------------------------------------------------------------------------
 
-# 指定した時間帯に予約可能な座席一覧を取得するGETエンドポイント
 @app.get("/api/availability", response_model=List[SeatRead])
 def available_seats(
-    # 検索開始時刻: 必須クエリパラメータ（...は必須を意味する）
-    start_time: datetime = Query(...),
-    # 検索終了時刻: 必須クエリパラメータ
-    end_time: datetime = Query(...),
-    # 依存性注入でAzure SQL接続を受け取る
-    conn: pyodbc.Connection = Depends(get_connection),
+    start_datetime: datetime = Query(...),
+    end_datetime: datetime   = Query(...),
+    floor_id: Optional[int]  = Query(None),
+    conn: pyodbc.Connection  = Depends(get_connection),
 ):
-    # 終了時刻が開始時刻より後であることを検証する
-    assert_time_range(start_time, end_time)
+    assert_time_range(start_datetime, end_datetime)
 
-    # アクティブかつ指定時間帯に重複する予約のない座席を取得する
-    # サブクエリで重複する予約のseat_idを取得し、NOT INで除外する
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT * FROM seats
+    query = """
+        SELECT seat_id, floor_id, seat_name, status, is_active,
+               created_at, updated_at, seat_type, capacity, has_monitor
+        FROM seats
         WHERE is_active = 1
-          AND id NOT IN (
-              SELECT seat_id
-              FROM reservations
-              WHERE NOT (end_time <= ? OR start_time >= ?)
+          AND seat_id NOT IN (
+              SELECT seat_id FROM reservations
+              WHERE status NOT IN ('cancelled', 'expired', 'completed')
+                AND NOT (end_datetime <= ? OR start_datetime >= ?)
           )
-        """,
-        # pyodbcはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
-        (start_time, end_time),
-    )
+    """
+    params: list = [start_datetime, end_datetime]
 
-    # 条件に合う全座席を取得する
+    if floor_id is not None:
+        query += " AND floor_id = ?"
+        params.append(floor_id)
+
+    query += " ORDER BY floor_id, seat_id"
+
+    cursor = conn.cursor()
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
-
-    # 各行をSeatReadモデルに変換してリストとして返す
     return [SeatRead(**row_to_dict(cursor, row)) for row in rows]
 
 
 # ---------------------------------------------------------------------------
-# 予約APIエンドポイント
+# 予約 API
 # ---------------------------------------------------------------------------
 
-# 予約一覧を取得するGETエンドポイント
 @app.get("/api/reservations", response_model=List[ReservationRead])
-def list_reservations(
-    # 依存性注入でAzure SQL接続を受け取る
-    conn: pyodbc.Connection = Depends(get_connection),
-):
-    # 全予約を開始時刻の昇順で取得する
+def list_reservations(conn: pyodbc.Connection = Depends(get_connection)):
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM reservations ORDER BY start_time")
+    cursor.execute(
+        """
+        SELECT reservation_id, seat_id, user_id, outlook_event_id,
+               start_datetime, end_datetime, status, notified_at,
+               created_at, updated_at
+        FROM reservations
+        ORDER BY start_datetime
+        """
+    )
     rows = cursor.fetchall()
-
-    # 各行をReservationReadモデルに変換してリストとして返す
     return [ReservationRead(**row_to_dict(cursor, row)) for row in rows]
 
 
-# 新規予約を作成するPOSTエンドポイント（成功時201を返す）
-@app.post("/api/reservations", response_model=ReservationRead, status_code=201)
-def create_reservation(
-    # リクエストボディをReservationCreateモデルとして受け取る
-    payload: ReservationCreate,
-    # 依存性注入でAzure SQL接続を受け取る
-    conn: pyodbc.Connection = Depends(get_connection),
-):
-    # 終了時刻が開始時刻より後であることを検証する
-    assert_time_range(payload.start_time, payload.end_time)
-
-    # 指定された座席が存在し、かつアクティブ（予約受付中）であるか確認する
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT * FROM seats WHERE id = ? AND is_active = 1",
-        (payload.seat_id,),
-    )
-    seat = cursor.fetchone()
-
-    # 座席が存在しない、またはアクティブでない場合は404エラーを返す
-    if seat is None:
-        raise HTTPException(status_code=404, detail="Seat not found or inactive")
-
-    # 指定した座席・時間帯に重複する予約が存在しないか確認する
-    if is_overlapping(conn, payload.seat_id, payload.start_time, payload.end_time):
-        # 重複する予約が存在する場合は409 Conflictエラーを返す
-        raise HTTPException(
-            status_code=409,
-            detail="Seat is already reserved for the selected time range",
-        )
-
-    # 予約をDBに登録する
-    # T-SQLではRETURNING構文が使えないためSCOPE_IDENTITY()でIDを取得する
-    cursor.execute(
-        """
-        INSERT INTO reservations 
-            (user_name, email, seat_id, start_time, end_time, status)
-        VALUES (?, ?, ?, ?, ?, ?);
-        SELECT SCOPE_IDENTITY() AS id;
-        """,
-        # pyodbcはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
-        (
-            payload.user_name,
-            payload.email,
-            payload.seat_id,
-            payload.start_time,
-            payload.end_time,
-            payload.status,
-        ),
-    )
-
-    # 次の結果セット（SCOPE_IDENTITY()の結果）に移動する
-    cursor.nextset()
-
-    # SCOPE_IDENTITY()の結果からINSERTしたIDを取得する
-    reservation_id = int(cursor.fetchone()[0])
-
-    # 予約をDBに確定させる
-    conn.commit()
-
-    # 作成した予約を再取得してレスポンスとして返す
-    cursor.execute(
-        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
-    )
-    row = cursor.fetchone()
-
-    # 取得した行をReservationReadモデルに変換して返す
-    return ReservationRead(**row_to_dict(cursor, row))
-
-
-# 指定IDの予約を取得するGETエンドポイント
 @app.get("/api/reservations/{reservation_id}", response_model=ReservationRead)
 def get_reservation(
-    # パスパラメータとして予約IDを受け取る
     reservation_id: int,
-    # 依存性注入でAzure SQL接続を受け取る
     conn: pyodbc.Connection = Depends(get_connection),
 ):
-    # 指定IDの予約を検索する
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+        """
+        SELECT reservation_id, seat_id, user_id, outlook_event_id,
+               start_datetime, end_datetime, status, notified_at,
+               created_at, updated_at
+        FROM reservations WHERE reservation_id = ?
+        """,
+        (reservation_id,),
     )
     row = cursor.fetchone()
-
-    # 予約が存在しない場合は404エラーを返す
     if row is None:
         raise HTTPException(status_code=404, detail="Reservation not found")
-
-    # 取得した行をReservationReadモデルに変換して返す
     return ReservationRead(**row_to_dict(cursor, row))
 
 
-# 指定IDの予約を更新するPUTエンドポイント
-@app.put("/api/reservations/{reservation_id}", response_model=ReservationRead)
-def update_reservation(
-    # パスパラメータとして予約IDを受け取る
-    reservation_id: int,
-    # リクエストボディをReservationUpdateモデルとして受け取る
-    payload: ReservationUpdate,
-    # 依存性注入でAzure SQL接続を受け取る
+@app.post("/api/reservations", response_model=ReservationRead, status_code=201)
+def create_reservation(
+    payload: ReservationCreate,
     conn: pyodbc.Connection = Depends(get_connection),
 ):
-    # 更新対象の予約が存在するか確認する
+    """新規予約を作成する（パスワードをハッシュ化して保存）"""
+    assert_time_range(payload.start_datetime, payload.end_datetime)
+    assert_reservation_status(payload.status)
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
+        (payload.seat_id,),
+    )
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Seat not found or inactive")
+
+    if is_overlapping(conn, payload.seat_id, payload.start_datetime, payload.end_datetime):
+        raise HTTPException(status_code=409, detail="指定した時間帯はすでに予約済みです")
+
+    # パスワードをハッシュ化
+    pw_hash = hash_password(payload.password)
+
+    try:
+        cursor.execute(
+            """
+            INSERT INTO reservations
+                (seat_id, user_id, outlook_event_id,
+                 start_datetime, end_datetime, status,
+                 password_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE());
+            SELECT SCOPE_IDENTITY() AS new_id;
+            """,
+            (
+                payload.seat_id,
+                payload.user_id,
+                payload.outlook_event_id,
+                payload.start_datetime,
+                payload.end_datetime,
+                payload.status,
+                pw_hash,
+            ),
+        )
+        cursor.nextset()
+        new_id = int(cursor.fetchone()[0])
+        conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    cursor.execute(
+        """
+        SELECT reservation_id, seat_id, user_id, outlook_event_id,
+               start_datetime, end_datetime, status, notified_at,
+               created_at, updated_at
+        FROM reservations WHERE reservation_id = ?
+        """,
+        (new_id,),
+    )
+    return ReservationRead(**row_to_dict(cursor, cursor.fetchone()))
+
+
+@app.put("/api/reservations/{reservation_id}", response_model=ReservationRead)
+def update_reservation(
+    reservation_id: int,
+    payload: ReservationUpdate,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+        """
+        SELECT reservation_id, seat_id, user_id, outlook_event_id,
+               start_datetime, end_datetime, status, notified_at,
+               created_at, updated_at
+        FROM reservations WHERE reservation_id = ?
+        """,
+        (reservation_id,),
     )
     row = cursor.fetchone()
-
-    # 予約が存在しない場合は404エラーを返す
     if row is None:
         raise HTTPException(status_code=404, detail="Reservation not found")
 
-    # 現在のDB値をdictとして取得する
-    reservation = row_to_dict(cursor, row)
+    current     = row_to_dict(cursor, row)
+    update_data = payload.model_dump(exclude_unset=True)
+    current.update(update_data)
 
-    # リクエストで指定されたフィールドのみを取得する（未指定フィールドは除外）
-    update_data = payload.dict(exclude_unset=True)
+    start: datetime = current["start_datetime"]
+    end: datetime   = current["end_datetime"]
 
-    # 現在のDB値に更新データを上書きする（部分更新）
-    reservation.update(update_data)
+    assert_time_range(start, end)
+    if "status" in update_data:
+        assert_reservation_status(current["status"])
 
-    # DATETIME2型はdatetimeオブジェクトとして返るが、
-    # 文字列として返る場合に備えてdatetimeへの変換を行う
-    start_time: datetime = (
-        datetime.fromisoformat(str(reservation["start_time"]))
-        if not isinstance(reservation["start_time"], datetime)
-        else reservation["start_time"]
+    cursor.execute(
+        "SELECT seat_id FROM seats WHERE seat_id = ? AND is_active = 1",
+        (current["seat_id"],),
     )
-    end_time: datetime = (
-        datetime.fromisoformat(str(reservation["end_time"]))
-        if not isinstance(reservation["end_time"], datetime)
-        else reservation["end_time"]
-    )
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Seat not found or inactive")
 
-    # 終了時刻が開始時刻より後であることを検証する
-    assert_time_range(start_time, end_time)
+    if is_overlapping(conn, current["seat_id"], start, end, exclude_reservation_id=reservation_id):
+        raise HTTPException(status_code=409, detail="指定した時間帯はすでに予約済みです")
 
-    # 更新後の座席が存在しアクティブであるか確認する
-    if reservation.get("seat_id") is not None:
-        cursor.execute(
-            "SELECT * FROM seats WHERE id = ? AND is_active = 1",
-            (reservation["seat_id"],),
-        )
-        seat = cursor.fetchone()
-        # 座席が存在しない、またはアクティブでない場合は404エラーを返す
-        if seat is None:
-            raise HTTPException(status_code=404, detail="Seat not found or inactive")
-
-    # 更新後の時間帯で重複する予約が存在しないか確認する（自身を除外して判定）
-    if is_overlapping(
-        conn,
-        reservation["seat_id"],
-        start_time,
-        end_time,
-        exclude_id=reservation_id,  # 自分自身の予約は重複チェックから除外する
-    ):
-        # 重複する予約が存在する場合は409 Conflictエラーを返す
-        raise HTTPException(
-            status_code=409,
-            detail="Seat is already reserved for the selected time range",
-        )
-
-    # 更新SQLを実行する
     cursor.execute(
         """
         UPDATE reservations
-        SET user_name  = ?,
-            email      = ?,
-            seat_id    = ?,
-            start_time = ?,
-            end_time   = ?,
-            status     = ?
-        WHERE id = ?
+        SET seat_id          = ?, user_id          = ?,
+            outlook_event_id = ?, start_datetime   = ?,
+            end_datetime     = ?, status           = ?,
+            updated_at       = GETDATE()
+        WHERE reservation_id = ?
         """,
-        # pyodbcはdatetimeオブジェクトを直接渡せる（isoformat()変換不要）
         (
-            reservation["user_name"],
-            reservation["email"],
-            reservation["seat_id"],
-            start_time,
-            end_time,
-            reservation["status"],
-            reservation_id,
+            current["seat_id"], current["user_id"],
+            current["outlook_event_id"], start, end,
+            current["status"], reservation_id,
         ),
     )
-
-    # 更新内容をDBに確定させる
     conn.commit()
 
-    # 更新後の予約データを再取得する
     cursor.execute(
-        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+        """
+        SELECT reservation_id, seat_id, user_id, outlook_event_id,
+               start_datetime, end_datetime, status, notified_at,
+               created_at, updated_at
+        FROM reservations WHERE reservation_id = ?
+        """,
+        (reservation_id,),
     )
-    row = cursor.fetchone()
-
-    # 取得した行をReservationReadモデルに変換して返す
-    return ReservationRead(**row_to_dict(cursor, row))
+    return ReservationRead(**row_to_dict(cursor, cursor.fetchone()))
 
 
-# 指定IDの予約を削除するDELETEエンドポイント（成功時204を返す）
 @app.delete("/api/reservations/{reservation_id}", status_code=204)
 def delete_reservation(
-    # パスパラメータとして予約IDを受け取る
     reservation_id: int,
-    # 依存性注入でAzure SQL接続を受け取る
     conn: pyodbc.Connection = Depends(get_connection),
 ):
-    # 削除対象の予約が存在するか確認する
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT * FROM reservations WHERE id = ?", (reservation_id,)
+        "SELECT reservation_id FROM reservations WHERE reservation_id = ?",
+        (reservation_id,),
     )
-    # 予約が存在しない場合は404エラーを返す
     if cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="Reservation not found")
 
-    # 予約を削除する
-    cursor.execute(
-        "DELETE FROM reservations WHERE id = ?", (reservation_id,)
-    )
+    cursor.execute("DELETE FROM reservations WHERE reservation_id = ?", (reservation_id,))
+    conn.commit()
+    return None
 
-    # 削除をDBに確定させる
+
+# ---------------------------------------------------------------------------
+# 予約キャンセル API（パスワード照合）
+# ---------------------------------------------------------------------------
+
+@app.post("/api/reservations/cancel/{reservation_id}", response_model=CancelResponse)
+def cancel_reservation_by_id(
+    reservation_id: int,
+    payload: ReservationCancelRequest,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    """パスワードを照合してキャンセルする"""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT reservation_id, seat_id, user_id, outlook_event_id, password_hash
+        FROM reservations WHERE reservation_id = ?
+        """,
+        (reservation_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+
+    reservation = row_to_dict(cursor, row)
+
+    # パスワード照合
+    stored_hash = reservation.get("password_hash") or ""
+    if not stored_hash or not verify_password(payload.password, stored_hash):
+        raise HTTPException(status_code=403, detail="パスワードが正しくありません")
+
+    cursor.execute(
+        """
+        UPDATE reservations
+        SET status = 'cancelled', updated_at = GETDATE()
+        WHERE reservation_id = ?
+        """,
+        (reservation_id,),
+    )
     conn.commit()
 
-    # 204 No Contentのレスポンスを返す（ボディなし）
-    return None
+    # Power Automate 通知（失敗しても続行）
+    if os.getenv("POWER_AUTOMATE_CANCEL_URL", ""):
+        try:
+            import requests as _req
+            _req.post(
+                os.getenv("POWER_AUTOMATE_CANCEL_URL"),
+                json={
+                    "reservation_id"  : reservation_id,
+                    "outlook_event_id": reservation.get("outlook_event_id", ""),
+                },
+                timeout=30,
+            ).raise_for_status()
+        except Exception as e:
+            print(f"[PowerAutomate] 通知エラー（処理続行）: {e}")
+
+    return CancelResponse(
+        status="cancelled",
+        reservation_id=reservation_id,
+        message="予約をキャンセルしました",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Power Automate 連携
+# ---------------------------------------------------------------------------
+
+@app.post("/api/reservations/sync", response_model=ReservationRead, status_code=201)
+def sync_outlook_reservation(
+    payload: OutlookReservationSync,
+    conn: pyodbc.Connection = Depends(get_connection),
+):
+    """Power Automate から Outlook 予約データを受信して保存する"""
+    assert_time_range(payload.start_time, payload.end_time)
+    cursor = conn.cursor()
+
+    # seat_numberからseat_idを取得
+    cursor.execute(
+        "SELECT seat_id FROM seats WHERE seat_name = ? AND is_active = 1",
+        (payload.seat_number,),
+    )
+    seat = cursor.fetchone()
+    if seat is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"席 {payload.seat_number} が見つかりません"
+        )
+    seat_id = seat[0]
+
+    # emailからuser_idを取得
+    cursor.execute(
+        "SELECT user_id FROM users WHERE email = ?",
+        (payload.email,),
+    )
+    user = cursor.fetchone()
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ユーザー {payload.email} が見つかりません"
+        )
+    user_id = user[0]
+
+    # outlook_event_idで既存予約を検索
+    cursor.execute(
+        "SELECT reservation_id FROM reservations WHERE outlook_event_id = ?",
+        (payload.outlook_event_id,),
+    )
+    existing = cursor.fetchone()
+
+    if existing is not None:
+        reservation_id = existing[0]
+        cursor.execute(
+            """
+            UPDATE reservations
+            SET seat_id        = ?,
+                user_id        = ?,
+                start_datetime = ?,
+                end_datetime   = ?,
+                status         = 'reserved',
+                updated_at     = GETDATE()
+            WHERE reservation_id = ?
+            """,
+            (seat_id, user_id, payload.start_time, payload.end_time, reservation_id),
+        )
+        conn.commit()
+    else:
+        if is_overlapping(conn, seat_id, payload.start_time, payload.end_time):
+            raise HTTPException(
+                status_code=409,
+                detail="指定した時間帯はすでに予約済みです",
+            )
+        cursor.execute(
+            """
+            INSERT INTO reservations
+                (seat_id, user_id, outlook_event_id,
+                 start_datetime, end_datetime, status,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'reserved', GETDATE(), GETDATE());
+            SELECT SCOPE_IDENTITY() AS new_id;
+            """,
+            (
+                seat_id, user_id, payload.outlook_event_id,
+                payload.start_time, payload.end_time,
+            ),
+        )
+        cursor.nextset()
+        reservation_id = int(cursor.fetchone()[0])
+        conn.commit()
+
+    cursor.execute(
+        """
+        SELECT reservation_id, seat_id, user_id, outlook_event_id,
+               start_datetime, end_datetime, status, notified_at,
+               created_at, updated_at
+        FROM reservations WHERE reservation_id = ?
+        """,
+        (reservation_id,),
+    )
+    return ReservationRead(**row_to_dict(cursor, cursor.fetchone()))
+
+

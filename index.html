@@ -4,49 +4,39 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>打合せ机 予約・使用状況システム</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
         body {
             font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif;
-            font-size: 14px;
-            background: #f0f2f5;
-            color: #333;
+            font-size: 14px; background: #f0f2f5; color: #333;
         }
-
-        /* ===== ヘッダー ===== */
         header {
             background: linear-gradient(135deg, #1a3a5c, #2d6a9f);
-            color: white;
-            padding: 0 24px;
-            height: 56px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
+            color: white; padding: 0 24px; height: 56px;
+            display: flex; align-items: center; gap: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            position: sticky;
-            top: 0;
-            z-index: 100;
+            position: sticky; top: 0; z-index: 100;
         }
         header .icon { font-size: 24px; }
-        header h1 { font-size: 17px; font-weight: 700; }
+        header h1 { font-size: 17px; font-weight: 700; flex: 1; }
+        .conn-status { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+        .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #888; flex-shrink: 0; }
+        .conn-dot.connected    { background: #4CAF50; }
+        .conn-dot.disconnected { background: #F44336; }
+        .conn-dot.connecting   { background: #FF9800; }
 
-        /* ===== サマリーバー ===== */
         .summary-bar {
-            background: white;
-            padding: 10px 24px;
-            display: flex;
-            gap: 20px;
-            align-items: center;
-            border-bottom: 1px solid #e0e4ea;
-            flex-wrap: wrap;
+            background: white; padding: 10px 24px;
+            display: flex; gap: 20px; align-items: center;
+            border-bottom: 1px solid #e0e4ea; flex-wrap: wrap;
         }
         .summary-item { display: flex; flex-direction: column; align-items: center; min-width: 60px; }
         .summary-item .num { font-size: 26px; font-weight: 800; line-height: 1; }
-        .summary-item .label { font-size: 11px; color: #888; margin-top: 2px; }
-        .summary-item.total .num    { color: #1a3a5c; }
-        .summary-item.vacant .num   { color: #27ae60; }
-        .summary-item.inuse .num    { color: #e74c3c; }
+        .summary-item .lbl { font-size: 11px; color: #888; margin-top: 2px; }
+        .summary-item.total    .num { color: #1a3a5c; }
+        .summary-item.vacant   .num { color: #27ae60; }
+        .summary-item.inuse    .num { color: #e74c3c; }
         .summary-item.reserved .num { color: #f39c12; }
         .summary-divider { width: 1px; height: 38px; background: #e0e4ea; }
         .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #555; }
@@ -54,126 +44,116 @@
         .dot-vacant   { background: #27ae60; }
         .dot-inuse    { background: #e74c3c; }
         .dot-reserved { background: #f39c12; }
-
-        /* ===== コンテンツ ===== */
-        .content-area { padding: 20px; }
-
-        /* ===== タブ ===== */
-        .tab-bar {
-            display: flex; gap: 4px; margin-bottom: 20px;
-            border-bottom: 2px solid #dde2ea;
+        .floor-badge {
+            margin-left: auto; background: #e8f0fe; color: #2d6a9f;
+            font-size: 13px; font-weight: 700; border-radius: 8px;
+            padding: 4px 14px; border: 1.5px solid #c8d6e5;
         }
+
+        .content-area { padding: 20px; }
+        .tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid #dde2ea; }
         .tab-btn {
             padding: 10px 20px; background: none; border: none;
             font-size: 14px; color: #888; cursor: pointer;
-            border-bottom: 2px solid transparent; margin-bottom: -2px;
-            transition: all 0.2s;
+            border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s;
         }
         .tab-btn.active { color: #2d6a9f; border-bottom-color: #2d6a9f; font-weight: 600; }
-
-        /* ===== フロアパネル ===== */
         .floor-panel { display: none; }
         .floor-panel.active { display: block; }
 
-        /* ===== マップエリア ===== */
+        /* マップ */
         .map-area {
             background: white; border-radius: 12px;
             padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
-
-        /* セクションタイトル＋ドロップダウン を横並び */
-        .section-title-row {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            margin-bottom: 20px;
-        }
+        .section-title-row { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
         .section-title {
             font-size: 16px; font-weight: 700; color: #1a3a5c;
-            display: flex; align-items: center; gap: 8px;
-            white-space: nowrap;
+            display: flex; align-items: center; gap: 8px; white-space: nowrap;
         }
-
-        /* インライン フロアドロップダウン */
         .floor-select-inline {
-            appearance: none;
-            -webkit-appearance: none;
-            background: white;
-            border: 1.5px solid #c8d6e5;
-            border-radius: 8px;
-            color: #1a3a5c;
-            font-size: 14px;
-            font-weight: 700;
-            padding: 5px 32px 5px 12px;
-            cursor: pointer;
-            outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            appearance: none; -webkit-appearance: none;
+            background: white; border: 1.5px solid #c8d6e5;
+            border-radius: 8px; color: #1a3a5c; font-size: 14px; font-weight: 700;
+            padding: 5px 32px 5px 12px; cursor: pointer; outline: none;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231a3a5c' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            min-width: 90px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+            background-repeat: no-repeat; background-position: right 10px center;
+            min-width: 90px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
         }
-        .floor-select-inline:hover {
-            border-color: #2d6a9f;
-            box-shadow: 0 2px 8px rgba(45,106,159,0.15);
-        }
-        .floor-select-inline:focus {
-            border-color: #2d6a9f;
-            box-shadow: 0 0 0 3px rgba(45,106,159,0.15);
-        }
-        .floor-select-inline option {
-            font-weight: 600;
-            color: #1a3a5c;
-        }
+        .floor-select-inline:hover { border-color: #2d6a9f; }
+        .floor-select-inline:focus { border-color: #2d6a9f; box-shadow: 0 0 0 3px rgba(45,106,159,0.15); }
 
         .floor-bg {
             background: #f4f7fb; border: 2px solid #c8d6e5;
-            border-radius: 14px; padding: 24px 20px 20px;
+            border-radius: 14px; padding: 20px; overflow-x: auto;
         }
-        .row {
-            display: flex; align-items: flex-start;
-            gap: 16px; margin-bottom: 24px;
+        .floor-layout {
+            display: grid;
+            grid-template-columns: 100px 1fr 100px;
+            gap: 12px; align-items: start; min-width: 700px;
         }
-        .row:last-child { margin-bottom: 0; }
-        .row-divider { border: none; margin: 0 0 24px; }
+        .conf-col { display: flex; flex-direction: column; gap: 8px; }
 
-        .section-group { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; flex-shrink: 0; }
-        .section-group-label { font-size: 12px; font-weight: 700; color: #5a7a9a; white-space: nowrap; }
+        .conf-card {
+            background: white; border: 2px solid #b0c4d8;
+            border-radius: 8px; padding: 8px 6px; cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            width: 90px; height: 115px;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+        .conf-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.13); }
+        .conf-card.vacant   { border-left: 4px solid #27ae60; }
+        .conf-card.inuse    { border-left: 4px solid #e74c3c; background: #fff8f8; }
+        .conf-card.reserved { border-left: 4px solid #f39c12; background: #fffbf2; }
 
-        .spot { display: flex; flex-direction: column; align-items: stretch; gap: 0; flex-shrink: 0; }
-        .spot-label { font-size: 11px; font-weight: 700; color: #1a3a5c; margin-bottom: 4px; white-space: nowrap; }
+        .desk-main-area { display: flex; flex-direction: column; gap: 0; }
+        .desk-row {
+            display: flex; gap: 10px; flex-wrap: nowrap;
+            align-items: flex-end; padding: 6px 0; justify-content: center;
+        }
+        .middle-row { height: 250px; }
+        .free-row { display: flex; gap: 10px; padding: 6px 0; align-items: flex-start; }
+        .free-spacer { flex: 1; }
 
-        /* ===== 机カード ===== */
+        .spot { display: flex; flex-direction: column; align-items: stretch; flex-shrink: 0; }
+        .spot.filtered-out { display: none; }
+
         .desk-card {
             background: white; border: 2px solid #b0c4d8;
-            border-radius: 8px; padding: 8px 10px;
-            cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
-            height: 130px;
+            border-radius: 8px; padding: 8px 10px; cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
             display: flex; flex-direction: column; justify-content: space-between;
         }
         .desk-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.13); }
         .desk-card.vacant   { border-left: 4px solid #27ae60; }
         .desk-card.inuse    { border-left: 4px solid #e74c3c; background: #fff8f8; }
         .desk-card.reserved { border-left: 4px solid #f39c12; background: #fffbf2; }
-        .desk-card.size-sm   { width: 100px; }
-        .desk-card.size-md   { width: 120px; }
-        .desk-card.size-lg   { width: 140px; }
-        .desk-card.size-xl   { width: 180px; }
-        .desk-card.size-conf { width: 90px; }
-        .desk-card.size-free { width: 115px; }
+        .desk-card.cap-4   { width: 92px;  height: 130px; }
+        .desk-card.cap-6   { width: 136px; height: 130px; }
+        .desk-card.cap-8   { width: 180px; height: 130px; }
+        .desk-card.size-free { width: 80px; height: 110px; }
 
+        .card-name {
+            font-size: 10px; font-weight: 700; color: #1a3a5c;
+            margin-bottom: 2px; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+        }
         .card-top { display: flex; flex-direction: column; gap: 3px; }
-        .desk-cap { font-size: 15px; font-weight: 800; color: #1a3a5c; line-height: 1.1; }
+        .desk-cap-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        .desk-cap { font-size: 14px; font-weight: 800; color: #1a3a5c; line-height: 1.1; }
         .desk-status-row { display: flex; align-items: center; gap: 4px; }
         .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
         .status-text { font-size: 10px; font-weight: 700; }
         .s-vacant   { color: #27ae60; }
         .s-inuse    { color: #e74c3c; }
         .s-reserved { color: #f39c12; }
-        .desk-who { font-size: 10px; color: #666; line-height: 1.3; min-height: 14px; }
+        .card-detail {
+            font-size: 9px; color: #888; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; min-height: 11px;
+        }
         .monitor-badge {
-            display: inline-block; font-size: 9px; font-weight: 600;
+            display: inline-flex; align-items: center;
+            font-size: 9px; font-weight: 600;
             background: #e8f0fe; color: #2d6a9f;
             border-radius: 3px; padding: 1px 4px;
         }
@@ -181,33 +161,80 @@
             display: block; width: 100%; padding: 5px;
             background: #2d6a9f; color: white; border: none;
             border-radius: 4px; font-size: 10px; font-weight: 600;
-            cursor: pointer; transition: background 0.2s; flex-shrink: 0;
+            cursor: pointer; transition: background 0.2s; flex-shrink: 0; margin-top: 4px;
         }
         .btn-reserve:hover { background: #1a3a5c; }
-        .spacer { flex: 1; }
+        .btn-reserve.inuse   { background: #c62828; }
+        .btn-reserve.reserved { background: #e65100; }
+        .btn-cancel-card {
+            display: block; width: 100%; padding: 4px;
+            background: white; color: #e74c3c;
+            border: 1px solid #e74c3c; border-radius: 4px;
+            font-size: 9px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; margin-top: 3px;
+        }
+        .btn-cancel-card:hover { background: #e74c3c; color: white; }
+        .desk-card.size-free .btn-reserve { font-size: 9px; padding: 3px; margin-top: 3px; }
 
-        /* ===== タイムライン ===== */
+        @keyframes flash { 0%{opacity:1;}50%{opacity:0.4;}100%{opacity:1;} }
+        .flashing { animation: flash 0.6s ease-in-out; }
+
+        /* タイムライン */
+        .timeline-filter-bar {
+            background: #f8f9fb; border: 1.5px solid #e0e4ea;
+            border-radius: 10px; padding: 10px 16px;
+            display: flex; align-items: center; gap: 16px;
+            flex-wrap: wrap; margin-bottom: 20px;
+        }
+        .filter-bar-label { font-size: 12px; font-weight: 700; color: #5a7a9a; white-space: nowrap; }
+        .filter-divider { width: 1px; height: 24px; background: #dde2ea; flex-shrink: 0; }
+        .filter-checkbox-wrap { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+        .filter-checkbox-wrap input[type="checkbox"] { width: 16px; height: 16px; accent-color: #2d6a9f; cursor: pointer; }
+        .filter-checkbox-wrap span { font-size: 13px; font-weight: 600; color: #1a3a5c; }
+        .filter-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .filter-group-label { font-size: 13px; font-weight: 600; color: #1a3a5c; white-space: nowrap; }
+        .filter-active-badge {
+            visibility: hidden; font-size: 11px; font-weight: 700;
+            background: #2d6a9f; color: white; border-radius: 10px; padding: 2px 10px;
+        }
+        .filter-active-badge.show { visibility: visible; }
+        .btn-filter-reset {
+            font-size: 12px; font-weight: 600; color: #888;
+            background: none; border: 1.5px solid #dde2ea;
+            border-radius: 6px; padding: 4px 12px;
+            cursor: pointer; transition: all 0.2s; visibility: hidden;
+        }
+        .btn-filter-reset.show { visibility: visible; }
+        .btn-filter-reset:hover { background: #f0f2f5; color: #555; }
+
         .timeline-area {
             background: white; border-radius: 12px;
-            padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-            overflow-x: auto;
+            padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow-x: auto;
         }
-        .timeline-header { display: flex; margin-bottom: 8px; margin-left: 150px; min-width: 672px; }
+        .timeline-section-head {
+            font-size: 12px; font-weight: 700; color: #5a7a9a;
+            padding: 6px 0 4px; margin-top: 8px;
+            border-bottom: 1px solid #e0e4ea; margin-bottom: 4px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .timeline-header { display: flex; margin-bottom: 8px; margin-left: 160px; min-width: 580px; }
         .timeline-hour { flex: 1; font-size: 11px; color: #aaa; text-align: left; min-width: 58px; }
-        .timeline-body { position: relative; }
+        .timeline-body { position: relative; min-width: 740px; }
         .now-line {
             position: absolute; top: 0; bottom: 0;
-            width: 2px; background: #e74c3c;
-            z-index: 10; pointer-events: none;
+            width: 2px; background: #e74c3c; z-index: 10; pointer-events: none; display: none;
         }
         .now-line::before {
-            content: ''; position: absolute;
-            top: -5px; left: 50%; transform: translateX(-50%);
-            width: 8px; height: 8px;
-            background: #e74c3c; border-radius: 50%;
+            content: ''; position: absolute; top: -5px; left: 50%; transform: translateX(-50%);
+            width: 8px; height: 8px; background: #e74c3c; border-radius: 50%;
         }
         .timeline-row { display: flex; align-items: center; margin-bottom: 8px; min-height: 34px; }
-        .timeline-label { width: 150px; font-size: 12px; color: #444; flex-shrink: 0; padding-right: 10px; white-space: nowrap; }
+        .timeline-row.filtered-out { display: none; }
+        .timeline-section-row { margin-top: 10px; }
+        .timeline-label {
+            width: 160px; font-size: 12px; color: #444; flex-shrink: 0;
+            padding-right: 10px; white-space: nowrap;
+        }
         .timeline-track {
             flex: 1; height: 22px; background: #f0f2f5;
             border-radius: 4px; position: relative; min-width: 522px;
@@ -221,7 +248,7 @@
         .block-inuse    { background: #e74c3c; }
         .block-reserved { background: #f39c12; }
 
-        /* ===== 予約フォーム ===== */
+        /* 予約フォーム */
         .form-overlay {
             display: none; position: fixed; inset: 0;
             background: rgba(0,0,0,0.4); z-index: 200;
@@ -231,7 +258,7 @@
         .form-card {
             background: white; border-radius: 14px;
             padding: 28px 32px; width: 420px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 95vw;
         }
         .form-title { font-size: 17px; font-weight: 700; color: #1a3a5c; margin-bottom: 20px; }
         .form-group { margin-bottom: 14px; }
@@ -241,7 +268,9 @@
             border-radius: 8px; font-size: 14px; color: #333;
         }
         .form-group input:focus, .form-group select:focus { outline: none; border-color: #2d6a9f; }
+        .form-group input[readonly] { background: #f0f2f5; color: #666; }
         .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .pw-hint { font-size: 10px; color: #f57c00; margin-top: 3px; }
         .form-actions { display: flex; gap: 10px; margin-top: 18px; }
         .btn-confirm {
             flex: 1; padding: 11px; background: #2d6a9f; color: white;
@@ -254,380 +283,95 @@
         }
         .btn-cancel:hover { background: #dde2ea; }
 
-        @media (max-width: 700px) {
-            .row { flex-wrap: wrap; }
+        /* キャンセル確認 */
+        .confirm-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.4); z-index: 300;
+            justify-content: center; align-items: center;
         }
+        .confirm-overlay.open { display: flex; }
+        .confirm-card {
+            background: white; border-radius: 14px;
+            padding: 28px 32px; width: 380px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-width: 95vw; text-align: center;
+        }
+        .confirm-icon  { font-size: 36px; margin-bottom: 10px; }
+        .confirm-title { font-size: 16px; font-weight: 700; color: #1a3a5c; margin-bottom: 6px; }
+        .confirm-text  { font-size: 13px; color: #666; margin-bottom: 16px; }
+        .confirm-actions { display: flex; gap: 10px; margin-top: 16px; }
+        .btn-danger {
+            flex: 1; padding: 11px; background: #e74c3c; color: white;
+            border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer;
+        }
+        .btn-danger:hover { background: #c0392b; }
+
+        .loading-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(255,255,255,0.8); z-index: 400;
+            justify-content: center; align-items: center;
+            font-size: 16px; font-weight: 700; color: #1a3a5c;
+        }
+        .loading-overlay.open { display: flex; }
+
+        .toast {
+            position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(80px);
+            background: #1a3a5c; color: white; padding: 12px 28px;
+            border-radius: 10px; font-size: 14px; font-weight: 600;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 500;
+            opacity: 0; transition: all 0.35s cubic-bezier(.4,0,.2,1); pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     </style>
 </head>
 <body>
 
-<!-- ヘッダー -->
 <header>
     <span class="icon">🏢</span>
     <h1>打合せ机 予約・使用状況システム</h1>
+    <div class="conn-status">
+        <div class="conn-dot" id="connDot"></div>
+        <span id="connText">接続中...</span>
+    </div>
 </header>
 
-<!-- サマリーバー -->
 <div class="summary-bar">
     <div class="summary-item total">
-        <span class="num" id="sumTotal">10</span><span class="label">総席数</span>
+        <span class="num" id="sumTotal">0</span>
+        <span class="lbl">総席数</span>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-item vacant">
-        <span class="num" id="sumVacant">4</span><span class="label">空き</span>
+        <span class="num" id="sumVacant">0</span>
+        <span class="lbl">空き</span>
     </div>
     <div class="summary-item inuse">
-        <span class="num" id="sumInuse">4</span><span class="label">使用中</span>
+        <span class="num" id="sumInuse">0</span>
+        <span class="lbl">使用中</span>
     </div>
     <div class="summary-item reserved">
-        <span class="num" id="sumReserved">2</span><span class="label">予約済み</span>
+        <span class="num" id="sumReserved">0</span>
+        <span class="lbl">予約済み</span>
     </div>
     <div class="summary-divider"></div>
     <div class="legend-item"><span class="legend-dot dot-vacant"></span>空き</div>
     <div class="legend-item"><span class="legend-dot dot-inuse"></span>使用中</div>
     <div class="legend-item"><span class="legend-dot dot-reserved"></span>予約済み</div>
     <div class="legend-item">🖥️ モニター有</div>
+    <div class="floor-badge" id="floorBadge">4階 表示中</div>
 </div>
 
-<!-- コンテンツ -->
 <div class="content-area">
-
-    <!-- タブ -->
     <div class="tab-bar">
         <button class="tab-btn active" onclick="showTab('map')">🗺️ フロアマップ</button>
-        <button class="tab-btn" onclick="showTab('timeline')">📅 タイムライン</button>
+        <button class="tab-btn"        onclick="showTab('timeline')">📅 タイムライン</button>
     </div>
-
-    <!-- ================================================
-         4階
-    ================================================ -->
-    <div class="floor-panel active" id="floor-4">
-
-        <!-- マップ -->
-        <div id="map-4" class="map-area">
-            <div class="section-title-row">
-                <div class="section-title">🗺️ フロアマップ —</div>
-                <select class="floor-select-inline" onchange="switchFloor(this.value)" id="mapSelect4">
-                    <option value="4" selected>4階</option>
-                    <option value="5">5階</option>
-                    <option value="6">6階</option>
-                </select>
-            </div>
-            <div class="floor-bg">
-                <div class="row">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室4-1</span>
-                        <div class="desk-card size-conf vacant" onclick="openForm('会議室4-1')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who"></div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spot">
-                        <span class="spot-label">机4-6</span>
-                        <div class="desk-card size-xl inuse" onclick="openForm('机4-6')">
-                            <div class="card-top"><div class="desk-cap">10名</div><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">人事部｜〜13:00</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spacer"></div>
-                    <div class="spot">
-                        <span class="spot-label">机4-7</span>
-                        <div class="desk-card size-sm vacant" onclick="openForm('机4-7')">
-                            <div class="card-top"><div class="desk-cap">4名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spot">
-                        <span class="spot-label">机4-5</span>
-                        <div class="desk-card size-md reserved" onclick="openForm('机4-5')">
-                            <div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#f39c12"></span><span class="status-text s-reserved">予約済み</span></div><div class="desk-who">法務部｜14:00〜16:00</div><span class="monitor-badge">🖥️ モニター有</span></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="row-divider"></div>
-                <div class="row">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室4-2</span>
-                        <div class="desk-card size-conf reserved" onclick="openForm('会議室4-2')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#f39c12"></span><span class="status-text s-reserved">予約済み</span></div><div class="desk-who">田中｜11:00〜12:00</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="row-divider"></div>
-                <div class="row" style="align-items:flex-start;">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室4-3</span>
-                        <div class="desk-card size-conf vacant" onclick="openForm('会議室4-3')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who"></div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:16px;flex:1;">
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                            <div class="spot"><span class="spot-label">机4-1</span><div class="desk-card size-md vacant" onclick="openForm('机4-1')"><div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机4-2</span><div class="desk-card size-md inuse" onclick="openForm('机4-2')"><div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">広報部｜〜10:30</div></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机4-3</span><div class="desk-card size-lg vacant" onclick="openForm('机4-3')"><div class="card-top"><div class="desk-cap">8名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div><span class="monitor-badge">🖥️ モニター有</span></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机4-4</span><div class="desk-card size-lg inuse" onclick="openForm('机4-4')"><div class="card-top"><div class="desk-cap">10名</div><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">財務部｜〜12:00</div></div><button class="btn-reserve">予約する</button></div></div>
-                        </div>
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                            <div class="spot"><span class="spot-label">フリースペース4-1</span><div class="desk-card size-free vacant" onclick="openForm('フリースペース4-1')"><div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">使用する</button></div></div>
-                            <div class="spot"><span class="spot-label">フリースペース4-2</span><div class="desk-card size-free vacant" onclick="openForm('フリースペース4-2')"><div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">使用する</button></div></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- タイムライン4階 -->
-        <div id="timeline-4" class="timeline-area" style="display:none;">
-            <div class="section-title-row">
-                <div class="section-title">📅 タイムライン（9:00〜18:00）—</div>
-                <select class="floor-select-inline" onchange="switchFloor(this.value)" id="tlSelect4">
-                    <option value="4" selected>4階</option>
-                    <option value="5">5階</option>
-                    <option value="6">6階</option>
-                </select>
-            </div>
-            <div class="timeline-header">
-                <div class="timeline-hour">9:00</div><div class="timeline-hour">10:00</div><div class="timeline-hour">11:00</div><div class="timeline-hour">12:00</div><div class="timeline-hour">13:00</div><div class="timeline-hour">14:00</div><div class="timeline-hour">15:00</div><div class="timeline-hour">16:00</div><div class="timeline-hour">17:00</div><div class="timeline-hour">18:00</div>
-            </div>
-            <div class="timeline-body" id="tbody-4">
-                <div class="now-line" id="nowline-4"></div>
-                <div class="timeline-row"><div class="timeline-label">会議室4-1</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">会議室4-2</div><div class="timeline-track"><div class="timeline-block block-reserved" style="left:22.2%;width:11.1%">田中</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">会議室4-3</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机4-1（6名）</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机4-2（6名）</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:16.7%">広報部 〜10:30</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机4-3（8名）🖥️</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机4-4（10名）</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:33.3%">財務部 〜12:00</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机4-5（6名）🖥️</div><div class="timeline-track"><div class="timeline-block block-reserved" style="left:55.6%;width:22.2%">法務部</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机4-6（10名）</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:44.4%">人事部 〜13:00</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机4-7（4名）</div><div class="timeline-track"></div></div>
-            </div>
+    <div id="floorPanels">
+        <div class="loading-inline" id="initialLoading"
+             style="text-align:center;padding:60px;font-size:16px;color:#888;">
+            ⏳ データを読み込み中...
         </div>
     </div>
-
-    <!-- ================================================
-         5階
-    ================================================ -->
-    <div class="floor-panel" id="floor-5">
-
-        <div id="map-5" class="map-area">
-            <div class="section-title-row">
-                <div class="section-title">🗺️ フロアマップ —</div>
-                <select class="floor-select-inline" onchange="switchFloor(this.value)" id="mapSelect5">
-                    <option value="4">4階</option>
-                    <option value="5" selected>5階</option>
-                    <option value="6">6階</option>
-                </select>
-            </div>
-            <div class="floor-bg">
-                <div class="row">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室5-1</span>
-                        <div class="desk-card size-conf inuse" onclick="openForm('会議室5-1')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">役員会｜〜14:00</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spot">
-                        <span class="spot-label">机5-6</span>
-                        <div class="desk-card size-xl vacant" onclick="openForm('机5-6')">
-                            <div class="card-top"><div class="desk-cap">12名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div><span class="monitor-badge">🖥️ モニター有</span></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spacer"></div>
-                    <div class="spot">
-                        <span class="spot-label">机5-7</span>
-                        <div class="desk-card size-md reserved" onclick="openForm('机5-7')">
-                            <div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#f39c12"></span><span class="status-text s-reserved">予約済み</span></div><div class="desk-who">鈴木｜13:00〜15:00</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spot">
-                        <span class="spot-label">机5-5</span>
-                        <div class="desk-card size-sm vacant" onclick="openForm('机5-5')">
-                            <div class="card-top"><div class="desk-cap">4名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="row-divider"></div>
-                <div class="row">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室5-2</span>
-                        <div class="desk-card size-conf vacant" onclick="openForm('会議室5-2')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who"></div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="row-divider"></div>
-                <div class="row" style="align-items:flex-start;">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室5-3</span>
-                        <div class="desk-card size-conf inuse" onclick="openForm('会議室5-3')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">開発部｜〜11:00</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:16px;flex:1;">
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                            <div class="spot"><span class="spot-label">机5-1</span><div class="desk-card size-md inuse" onclick="openForm('机5-1')"><div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">営業部｜〜10:00</div></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机5-2</span><div class="desk-card size-md vacant" onclick="openForm('机5-2')"><div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机5-3</span><div class="desk-card size-lg reserved" onclick="openForm('机5-3')"><div class="card-top"><div class="desk-cap">8名</div><div class="desk-status-row"><span class="status-dot" style="background:#f39c12"></span><span class="status-text s-reserved">予約済み</span></div><div class="desk-who">企画部｜10:00〜12:00</div><span class="monitor-badge">🖥️ モニター有</span></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机5-4</span><div class="desk-card size-lg vacant" onclick="openForm('机5-4')"><div class="card-top"><div class="desk-cap">10名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">予約する</button></div></div>
-                        </div>
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                            <div class="spot"><span class="spot-label">フリースペース5-1</span><div class="desk-card size-free inuse" onclick="openForm('フリースペース5-1')"><div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">総務部｜〜11:30</div></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">フリースペース5-2</span><div class="desk-card size-free vacant" onclick="openForm('フリースペース5-2')"><div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">使用する</button></div></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="timeline-5" class="timeline-area" style="display:none;">
-            <div class="section-title-row">
-                <div class="section-title">📅 タイムライン（9:00〜18:00）—</div>
-                <select class="floor-select-inline" onchange="switchFloor(this.value)" id="tlSelect5">
-                    <option value="4">4階</option>
-                    <option value="5" selected>5階</option>
-                    <option value="6">6階</option>
-                </select>
-            </div>
-            <div class="timeline-header">
-                <div class="timeline-hour">9:00</div><div class="timeline-hour">10:00</div><div class="timeline-hour">11:00</div><div class="timeline-hour">12:00</div><div class="timeline-hour">13:00</div><div class="timeline-hour">14:00</div><div class="timeline-hour">15:00</div><div class="timeline-hour">16:00</div><div class="timeline-hour">17:00</div><div class="timeline-hour">18:00</div>
-            </div>
-            <div class="timeline-body" id="tbody-5">
-                <div class="now-line" id="nowline-5"></div>
-                <div class="timeline-row"><div class="timeline-label">会議室5-1</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:55.6%">役員会 〜14:00</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">会議室5-2</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">会議室5-3</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:22.2%">開発部 〜11:00</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机5-1（6名）</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:11.1%">営業部 〜10:00</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机5-2（6名）</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机5-3（8名）🖥️</div><div class="timeline-track"><div class="timeline-block block-reserved" style="left:11.1%;width:22.2%">企画部</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机5-4（10名）</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机5-5（4名）</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机5-6（12名）🖥️</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机5-7（6名）</div><div class="timeline-track"><div class="timeline-block block-reserved" style="left:44.4%;width:22.2%">鈴木</div></div></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ================================================
-         6階
-    ================================================ -->
-    <div class="floor-panel" id="floor-6">
-
-        <div id="map-6" class="map-area">
-            <div class="section-title-row">
-                <div class="section-title">🗺️ フロアマップ —</div>
-                <select class="floor-select-inline" onchange="switchFloor(this.value)" id="mapSelect6">
-                    <option value="4">4階</option>
-                    <option value="5">5階</option>
-                    <option value="6" selected>6階</option>
-                </select>
-            </div>
-            <div class="floor-bg">
-                <div class="row">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室6-1</span>
-                        <div class="desk-card size-conf vacant" onclick="openForm('会議室6-1')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who"></div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spot">
-                        <span class="spot-label">机6-6</span>
-                        <div class="desk-card size-xl vacant" onclick="openForm('机6-6')">
-                            <div class="card-top"><div class="desk-cap">12名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div><span class="monitor-badge">🖥️ モニター有</span></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spacer"></div>
-                    <div class="spot">
-                        <span class="spot-label">机6-7</span>
-                        <div class="desk-card size-sm inuse" onclick="openForm('机6-7')">
-                            <div class="card-top"><div class="desk-cap">4名</div><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">山田｜〜12:00</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div class="spot">
-                        <span class="spot-label">机6-5</span>
-                        <div class="desk-card size-md reserved" onclick="openForm('机6-5')">
-                            <div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#f39c12"></span><span class="status-text s-reserved">予約済み</span></div><div class="desk-who">開発部｜10:30〜12:00</div><span class="monitor-badge">🖥️ モニター有</span></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="row-divider"></div>
-                <div class="row">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室6-2</span>
-                        <div class="desk-card size-conf inuse" onclick="openForm('会議室6-2')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">営業部｜〜11:00</div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="row-divider"></div>
-                <div class="row" style="align-items:flex-start;">
-                    <div class="section-group">
-                        <span class="section-group-label">会議室6-3</span>
-                        <div class="desk-card size-conf vacant" onclick="openForm('会議室6-3')">
-                            <div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who"></div></div>
-                            <button class="btn-reserve">予約する</button>
-                        </div>
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:16px;flex:1;">
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                            <div class="spot"><span class="spot-label">机6-1</span><div class="desk-card size-md vacant" onclick="openForm('机6-1')"><div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机6-2</span><div class="desk-card size-md inuse" onclick="openForm('机6-2')"><div class="card-top"><div class="desk-cap">6名</div><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">企画部｜〜11:30</div></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机6-3</span><div class="desk-card size-lg reserved" onclick="openForm('机6-3')"><div class="card-top"><div class="desk-cap">8名</div><div class="desk-status-row"><span class="status-dot" style="background:#f39c12"></span><span class="status-text s-reserved">予約済み</span></div><div class="desk-who">佐藤｜11:00〜12:00</div><span class="monitor-badge">🖥️ モニター有</span></div><button class="btn-reserve">予約する</button></div></div>
-                            <div class="spot"><span class="spot-label">机6-4</span><div class="desk-card size-lg vacant" onclick="openForm('机6-4')"><div class="card-top"><div class="desk-cap">10名</div><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">予約する</button></div></div>
-                        </div>
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                            <div class="spot"><span class="spot-label">フリースペース6-1</span><div class="desk-card size-free vacant" onclick="openForm('フリースペース6-1')"><div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#27ae60"></span><span class="status-text s-vacant">空き</span></div><div class="desk-who">本日空き</div></div><button class="btn-reserve">使用する</button></div></div>
-                            <div class="spot"><span class="spot-label">フリースペース6-2</span><div class="desk-card size-free inuse" onclick="openForm('フリースペース6-2')"><div class="card-top"><div class="desk-status-row"><span class="status-dot" style="background:#e74c3c"></span><span class="status-text s-inuse">使用中</span></div><div class="desk-who">総務部｜〜15:00</div></div><button class="btn-reserve">予約する</button></div></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="timeline-6" class="timeline-area" style="display:none;">
-            <div class="section-title-row">
-                <div class="section-title">📅 タイムライン（9:00〜18:00）—</div>
-                <select class="floor-select-inline" onchange="switchFloor(this.value)" id="tlSelect6">
-                    <option value="4">4階</option>
-                    <option value="5">5階</option>
-                    <option value="6" selected>6階</option>
-                </select>
-            </div>
-            <div class="timeline-header">
-                <div class="timeline-hour">9:00</div><div class="timeline-hour">10:00</div><div class="timeline-hour">11:00</div><div class="timeline-hour">12:00</div><div class="timeline-hour">13:00</div><div class="timeline-hour">14:00</div><div class="timeline-hour">15:00</div><div class="timeline-hour">16:00</div><div class="timeline-hour">17:00</div><div class="timeline-hour">18:00</div>
-            </div>
-            <div class="timeline-body" id="tbody-6">
-                <div class="now-line" id="nowline-6"></div>
-                <div class="timeline-row"><div class="timeline-label">会議室6-1</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">会議室6-2</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:22.2%">営業部 〜11:00</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">会議室6-3</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机6-1（6名）</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机6-2（6名）</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:27.8%">企画部 〜11:30</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机6-3（8名）🖥️</div><div class="timeline-track"><div class="timeline-block block-reserved" style="left:22.2%;width:11.1%">佐藤</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机6-4（10名）</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机6-5（6名）🖥️</div><div class="timeline-track"><div class="timeline-block block-reserved" style="left:16.7%;width:16.7%">開発部</div></div></div>
-                <div class="timeline-row"><div class="timeline-label">机6-6（12名）🖥️</div><div class="timeline-track"></div></div>
-                <div class="timeline-row"><div class="timeline-label">机6-7（4名）</div><div class="timeline-track"><div class="timeline-block block-inuse" style="left:0%;width:33.3%">山田 〜12:00</div></div></div>
-            </div>
-        </div>
-    </div>
-
-</div><!-- /content-area -->
+</div>
 
 <!-- 予約フォーム -->
 <div class="form-overlay" id="formOverlay">
@@ -636,146 +380,750 @@
         <div class="form-group">
             <label>席名</label>
             <input type="text" id="formDesk" readonly>
+            <input type="hidden" id="formSeatId">
         </div>
         <div class="form-group">
             <label>予約者名</label>
-            <input type="text" placeholder="例：山田 太郎">
+            <input type="text" id="formName" placeholder="例：山田 太郎">
+        </div>
+        <div class="form-group">
+            <label>メールアドレス</label>
+            <input type="email" id="formEmail" placeholder="例：yamada@example.com">
         </div>
         <div class="form-row">
             <div class="form-group">
                 <label>開始時間</label>
-                <select>
-                    <option>9:00</option><option>9:30</option><option>10:00</option><option>10:30</option>
-                    <option>11:00</option><option>11:30</option><option>12:00</option><option>12:30</option>
-                    <option>13:00</option><option>13:30</option><option>14:00</option><option>14:30</option>
-                    <option>15:00</option><option>15:30</option><option>16:00</option><option>16:30</option>
-                    <option>17:00</option><option>17:30</option>
-                </select>
+                <select id="formStart"></select>
             </div>
             <div class="form-group">
                 <label>終了時間</label>
-                <select>
-                    <option>9:30</option><option>10:00</option><option>10:30</option>
-                    <option>11:00</option><option>11:30</option><option>12:00</option><option>12:30</option>
-                    <option>13:00</option><option>13:30</option><option>14:00</option><option>14:30</option>
-                    <option>15:00</option><option>15:30</option><option>16:00</option><option>16:30</option>
-                    <option>17:00</option><option>17:30</option><option>18:00</option>
-                </select>
+                <select id="formEnd"></select>
             </div>
         </div>
+        <div class="form-group">
+            <label>キャンセル用パスワード（4桁）</label>
+            <input type="password" id="formPassword" maxlength="4" inputmode="numeric" placeholder="例：1234">
+            <div class="pw-hint">⚠️ キャンセル時に必要です。忘れずメモしてください。</div>
+        </div>
         <div class="form-actions">
-            <button class="btn-confirm">予約確定</button>
-            <button class="btn-cancel" onclick="closeForm()">キャンセル</button>
+            <button class="btn-confirm" onclick="submitReservation()">予約確定</button>
+            <button class="btn-cancel"  onclick="closeForm()">閉じる</button>
         </div>
     </div>
 </div>
 
-<script>
-    let currentFloor = '4';
-    let currentTab   = 'map';
+<!-- キャンセル確認 -->
+<div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-card">
+        <div class="confirm-icon">⚠️</div>
+        <div class="confirm-title">予約をキャンセルしますか？</div>
+        <div class="confirm-text" id="confirmText"></div>
+        <div class="form-group" style="text-align:left;">
+            <label style="display:block;font-size:12px;font-weight:600;color:#666;margin-bottom:5px;">
+                パスワード（4桁）
+            </label>
+            <input type="password" id="cancelPassword" maxlength="4" inputmode="numeric"
+                   placeholder="予約時のパスワード"
+                   style="width:100%;padding:9px 12px;border:1.5px solid #dde2ea;border-radius:8px;font-size:14px;">
+        </div>
+        <div class="confirm-actions">
+            <button class="btn-danger" onclick="executeCancel()">キャンセルする</button>
+            <button class="btn-cancel" onclick="closeConfirm()">戻る</button>
+        </div>
+    </div>
+</div>
 
-    const summaryData = {
-        '4': { total: 10, vacant: 4, inuse: 4, reserved: 2 },
-        '5': { total: 10, vacant: 4, inuse: 4, reserved: 2 },
-        '6': { total: 10, vacant: 4, inuse: 4, reserved: 2 },
+<div class="loading-overlay" id="loadingOverlay">⏳ 処理中...</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+    'use strict';
+
+    // ============================================================
+    // 定数
+    // ============================================================
+    const API_BASE     = '';
+    const START_HOUR   = 9;
+    const END_HOUR     = 18;
+    const TL_TOTAL_MIN = (END_HOUR - START_HOUR) * 60; // 540分
+
+    // floor_id → 階名・デスクPrefix・会議室Prefix
+    const FLOOR_DEF = {
+        2: { label: '4階', floorNum: '4', deskPfx: '4-1', confPfx: '会議室04' },
+        3: { label: '5階', floorNum: '5', deskPfx: '5-1', confPfx: '会議室05' },
+        4: { label: '6階', floorNum: '6', deskPfx: '6-1', confPfx: '会議室06' },
     };
 
-    function switchFloor(floor) {
-        // パネル切り替え
-        document.querySelectorAll('.floor-panel').forEach(p => p.classList.remove('active'));
-        document.getElementById('floor-' + floor).classList.add('active');
-        currentFloor = floor;
+    // ============================================================
+    // 状態
+    // ============================================================
+    let seatsData        = [];
+    let reservationsData = [];
+    let floorsData       = [];
+    let currentFloor     = null; // floor_id (number)
+    let currentTab       = 'map';
+    let pendingCancelId  = null;
 
-        // タブ表示を維持して切り替え
-        showTab(currentTab);
+    // ============================================================
+    // 起動
+    // ============================================================
+    document.addEventListener('DOMContentLoaded', async () => {
+        buildTimeSelects();
+        await cleanupPast();
+        await loadAll();
+        buildUI();
+        updateSummary();
+        showTab('map');
+        setInterval(async () => { await refreshData(); }, 60000);
+        connectSignalR();
+    });
 
-        // 全セレクトボックスの選択値を同期
-        syncAllSelects(floor);
-
-        // サマリー更新
-        updateSummary(floor);
-
-        // 現在時刻ライン更新
-        if (currentTab === 'timeline') {
-            requestAnimationFrame(() => updateNowLine(floor));
-        }
+    // ============================================================
+    // データ取得
+    // ============================================================
+    async function cleanupPast() {
+        try { await fetch(`${API_BASE}/api/reservations/cleanup`, { method: 'DELETE' }); } catch(e) {}
     }
 
-    // 全セレクトを同期
-    function syncAllSelects(floor) {
-        ['mapSelect4','mapSelect5','mapSelect6',
-         'tlSelect4','tlSelect5','tlSelect6'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.value = floor;
+    async function loadAll() {
+        await Promise.all([loadFloors(), loadSeats(), loadReservations()]);
+    }
+
+    async function loadFloors() {
+        try {
+            const r = await fetch(`${API_BASE}/api/floors`);
+            floorsData = await r.json();
+        } catch(e) { floorsData = []; }
+    }
+
+    async function loadSeats() {
+        try {
+            const r = await fetch(`${API_BASE}/api/seats`);
+            seatsData = await r.json();
+        } catch(e) { seatsData = []; }
+    }
+
+    async function loadReservations() {
+        try {
+            const r = await fetch(`${API_BASE}/api/reservations`);
+            reservationsData = await r.json();
+        } catch(e) { reservationsData = []; }
+    }
+
+    async function refreshData() {
+        await loadSeats();
+        await loadReservations();
+        rebuildCards();
+        rebuildTimelines();
+        updateSummary();
+    }
+
+    // ============================================================
+    // ステータス計算
+    // ============================================================
+    function nowMin() {
+        const d = new Date();
+        return d.getHours() * 60 + d.getMinutes();
+    }
+
+    function isoToMin(iso) {
+        if (!iso) return 0;
+        const d = new Date(iso);
+        return d.getHours() * 60 + d.getMinutes();
+    }
+
+    function getStatus(seat) {
+        if ((seat.status || 'empty') === 'in_use') return 'inuse';
+        const nm = nowMin();
+        const active = reservationsData.find(r =>
+            r.seat_id === seat.seat_id && r.status === 'reserved' &&
+            isoToMin(r.start_datetime) <= nm && isoToMin(r.end_datetime) > nm
+        );
+        return active ? 'reserved' : 'vacant';
+    }
+
+    function getUpcoming(seatId) {
+        const nm = nowMin();
+        return reservationsData
+            .filter(r => r.seat_id === seatId && r.status === 'reserved' && isoToMin(r.end_datetime) > nm)
+            .sort((a, b) => isoToMin(a.start_datetime) - isoToMin(b.start_datetime))[0] || null;
+    }
+
+    function fmtTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    // ============================================================
+    // UI構築（初回）
+    // ============================================================
+    function buildUI() {
+        const container = document.getElementById('floorPanels');
+        document.getElementById('initialLoading').remove();
+
+        const targetFloors = floorsData.filter(f => f.floor_id !== 1);
+        if (targetFloors.length === 0) {
+            container.innerHTML = '<div style="padding:40px;color:#888;text-align:center;">フロアデータがありません</div>';
+            return;
+        }
+
+        currentFloor = targetFloors[0].floor_id;
+
+        targetFloors.forEach((floor, idx) => {
+            const def = FLOOR_DEF[floor.floor_id];
+            if (!def) return;
+            const panel = document.createElement('div');
+            panel.className       = 'floor-panel' + (idx === 0 ? ' active' : '');
+            panel.id              = `floor-${floor.floor_id}`;
+            panel.dataset.floorId = floor.floor_id;
+            panel.innerHTML = buildPanelHTML(floor, def, targetFloors);
+            container.appendChild(panel);
+        });
+
+        document.getElementById('floorBadge').textContent =
+            (FLOOR_DEF[currentFloor]?.label || currentFloor) + ' 表示中';
+    }
+
+    function buildPanelHTML(floor, def, allFloors) {
+        const selectOpts = allFloors.map(f => {
+            const d = FLOOR_DEF[f.floor_id];
+            const sel = f.floor_id === floor.floor_id ? ' selected' : '';
+            return `<option value="${f.floor_id}"${sel}>${d?.label || f.floor_name}</option>`;
+        }).join('');
+
+        return `
+            <!-- マップ -->
+            <div id="map-${floor.floor_id}" class="map-area">
+                <div class="section-title-row">
+                    <div class="section-title">🗺️ フロアマップ —</div>
+                    <select class="floor-select-inline" onchange="switchFloor(this.value)">${selectOpts}</select>
+                </div>
+                <div class="floor-bg">
+                    <div class="floor-layout" id="floorLayout-${floor.floor_id}">
+                        ${buildMapHTML(floor.floor_id, def)}
+                    </div>
+                </div>
+            </div>
+            <!-- タイムライン -->
+            <div id="timeline-${floor.floor_id}" class="timeline-area" style="display:none;">
+                <div class="section-title-row">
+                    <div class="section-title">📅 タイムライン（9:00〜18:00）—</div>
+                    <select class="floor-select-inline" onchange="switchFloor(this.value)">${selectOpts}</select>
+                </div>
+                ${buildFilterBarHTML(floor.floor_id)}
+                <div class="timeline-header">
+                    ${[9,10,11,12,13,14,15,16,17,18].map(h=>`<div class="timeline-hour">${h}:00</div>`).join('')}
+                </div>
+                <div class="timeline-body" id="tbody-${floor.floor_id}">
+                    <div class="now-line" id="nowline-${floor.floor_id}"></div>
+                    <div id="tlRows-${floor.floor_id}">
+                        ${buildTimelineRowsHTML(floor.floor_id)}
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    // ---- フロアマップ HTML ----
+    function buildMapHTML(floorId, def) {
+        const seats     = seatsData.filter(s => s.floor_id === floorId);
+        const confSeats = seats.filter(s => s.seat_type === 'conf').sort((a,b)=>a.seat_name.localeCompare(b.seat_name, 'ja'));
+        const deskSeats = seats.filter(s => s.seat_type === 'desk').sort((a,b)=>a.seat_name.localeCompare(b.seat_name, 'ja'));
+        const freeSeats = seats.filter(s => s.seat_type === 'free').sort((a,b)=>a.seat_name.localeCompare(b.seat_name, 'ja'));
+
+        const leftConf  = confSeats.slice(0, 3);
+        const rightConf = confSeats.slice(3, 6);
+        const topDesk   = deskSeats.slice(0, 6);
+        const botDesk   = deskSeats.slice(6, 12);
+        const leftFree  = freeSeats.slice(0, 2);
+        const rightFree = freeSeats.slice(2);
+
+        return `
+            <div class="conf-col">${leftConf.map(s => confCardHTML(s)).join('')}</div>
+            <div class="desk-main-area">
+                <div class="desk-row">${topDesk.map(s => deskSpotHTML(s)).join('')}</div>
+                <div class="middle-row"></div>
+                <div class="desk-row">${botDesk.map(s => deskSpotHTML(s)).join('')}</div>
+                <div class="free-row">
+                    ${leftFree.map(s => freeSpotHTML(s)).join('')}
+                    <div class="free-spacer"></div>
+                    ${rightFree.map(s => freeSpotHTML(s)).join('')}
+                </div>
+            </div>
+            <div class="conf-col">${rightConf.map(s => confCardHTML(s)).join('')}</div>`;
+    }
+
+    function confCardHTML(seat) {
+        const st      = getStatus(seat);
+        const upcoming = getUpcoming(seat.seat_id);
+        const detail  = detailText(seat, st, upcoming);
+        const dotCol  = stColor(st);
+        const stLabel = stText(st);
+        return `
+            <div class="conf-card ${st}" id="card-${seat.seat_id}" data-seat-id="${seat.seat_id}">
+                <div class="card-top">
+                    <div class="card-name">${seat.seat_name}</div>
+                    <div class="desk-cap-row"><div class="desk-cap">${seat.capacity||''}名</div></div>
+                    <div class="desk-status-row">
+                        <span class="status-dot" style="background:${dotCol}"></span>
+                        <span class="status-text s-${st}">${stLabel}</span>
+                    </div>
+                    <div class="card-detail">${detail}</div>
+                </div>
+                <div>
+                    <button class="btn-reserve ${st}"
+                        onclick="openForm(${seat.seat_id},'${esc(seat.seat_name)}')">予約する</button>
+                    ${cancelBtnHTML(upcoming, seat)}
+                </div>
+            </div>`;
+    }
+
+    function deskSpotHTML(seat) {
+        const st      = getStatus(seat);
+        const upcoming = getUpcoming(seat.seat_id);
+        const detail  = detailText(seat, st, upcoming);
+        const dotCol  = stColor(st);
+        const stLabel = stText(st);
+        const capClass = capToClass(seat.capacity);
+        const monBadge = seat.has_monitor ? `<span class="monitor-badge">🖥️ モニター有</span>` : '';
+        return `
+            <div class="spot" data-type="desk" data-capacity="${seat.capacity||''}" data-monitor="${!!seat.has_monitor}">
+                <div class="desk-card ${capClass} ${st}" id="card-${seat.seat_id}" data-seat-id="${seat.seat_id}">
+                    <div class="card-top">
+                        <div class="card-name">${seat.seat_name}</div>
+                        <div class="desk-cap-row">
+                            <div class="desk-cap">${seat.capacity||''}名</div>${monBadge}
+                        </div>
+                        <div class="desk-status-row">
+                            <span class="status-dot" style="background:${dotCol}"></span>
+                            <span class="status-text s-${st}">${stLabel}</span>
+                        </div>
+                        <div class="card-detail">${detail}</div>
+                    </div>
+                    <div>
+                        <button class="btn-reserve ${st}"
+                            onclick="openForm(${seat.seat_id},'${esc(seat.seat_name)}')">予約する</button>
+                        ${cancelBtnHTML(upcoming, seat)}
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function freeSpotHTML(seat) {
+        const st      = getStatus(seat);
+        const dotCol  = stColor(st);
+        const stLabel = stText(st);
+        return `
+            <div class="spot" data-type="free">
+                <div class="desk-card size-free ${st}" id="card-${seat.seat_id}" data-seat-id="${seat.seat_id}">
+                    <div class="card-top">
+                        <div class="card-name">${seat.seat_name}</div>
+                        <div class="desk-status-row">
+                            <span class="status-dot" style="background:${dotCol}"></span>
+                            <span class="status-text s-${st}">${stLabel}</span>
+                        </div>
+                    </div>
+                    <button class="btn-reserve ${st}"
+                        onclick="openForm(${seat.seat_id},'${esc(seat.seat_name)}')">使用する</button>
+                </div>
+            </div>`;
+    }
+
+    function cancelBtnHTML(upcoming, seat) {
+        if (!upcoming || !upcoming.reservation_id) return '';
+        const t = `${fmtTime(upcoming.start_datetime)}〜${fmtTime(upcoming.end_datetime)}`;
+        return `<button class="btn-cancel-card"
+            onclick="openConfirm(${upcoming.reservation_id},'${esc(seat.seat_name)}','${t}')">キャンセル</button>`;
+    }
+
+    function detailText(seat, st, upcoming) {
+        if (st === 'inuse')    return '現在使用中';
+        if (st === 'reserved' && upcoming)
+            return `${fmtTime(upcoming.start_datetime)}〜${fmtTime(upcoming.end_datetime)}`;
+        if (upcoming) return `次: ${fmtTime(upcoming.start_datetime)}〜`;
+        return '本日空き';
+    }
+
+    // ---- タイムライン行 HTML ----
+    function buildTimelineRowsHTML(floorId) {
+        const seats     = seatsData.filter(s => s.floor_id === floorId);
+        const deskSeats = seats.filter(s => s.seat_type === 'desk').sort((a,b)=>a.seat_name.localeCompare(b.seat_name,'ja'));
+        const confSeats = seats.filter(s => s.seat_type === 'conf').sort((a,b)=>a.seat_name.localeCompare(b.seat_name,'ja'));
+        const freeSeats = seats.filter(s => s.seat_type === 'free').sort((a,b)=>a.seat_name.localeCompare(b.seat_name,'ja'));
+
+        let html = '';
+        if (deskSeats.length) {
+            html += `<div class="timeline-row timeline-section-row" data-type="section-desk">
+                         <div class="timeline-section-head" style="width:100%">📋 打合せ机</div></div>`;
+            html += deskSeats.map(s => tlRowHTML(s, 'desk')).join('');
+        }
+        if (confSeats.length) {
+            html += `<div class="timeline-row timeline-section-row" data-type="section-conf">
+                         <div class="timeline-section-head" style="width:100%">🚪 会議室</div></div>`;
+            html += confSeats.map(s => tlRowHTML(s, 'conf')).join('');
+        }
+        if (freeSeats.length) {
+            html += `<div class="timeline-row timeline-section-row" data-type="section-free">
+                         <div class="timeline-section-head" style="width:100%">🪑 フリー</div></div>`;
+            html += freeSeats.map(s => tlRowHTML(s, 'free')).join('');
+        }
+        return html;
+    }
+
+    function tlRowHTML(seat, type) {
+        const mon = seat.has_monitor ? ' 🖥️' : '';
+        const capStr = seat.capacity ? `（${seat.capacity}名）` : '';
+        const label  = `${seat.seat_name}${capStr}${mon}`;
+        const blocks = tlBlocksHTML(seat);
+        return `
+            <div class="timeline-row" data-type="${type}"
+                 data-capacity="${seat.capacity||''}"
+                 data-monitor="${!!seat.has_monitor}"
+                 data-seat-id="${seat.seat_id}">
+                <div class="timeline-label">${label}</div>
+                <div class="timeline-track">${blocks}</div>
+            </div>`;
+    }
+
+    function tlBlocksHTML(seat) {
+        const rsvs = reservationsData.filter(r =>
+            r.seat_id === seat.seat_id && ['reserved','in_use'].includes(r.status)
+        );
+        return rsvs.map(r => {
+            const startM  = Math.max(isoToMin(r.start_datetime), START_HOUR * 60) - START_HOUR * 60;
+            const endM    = Math.min(isoToMin(r.end_datetime),   END_HOUR   * 60) - START_HOUR * 60;
+            if (endM <= 0 || startM >= TL_TOTAL_MIN) return '';
+            const left  = (startM / TL_TOTAL_MIN * 100).toFixed(2);
+            const width = ((endM - startM) / TL_TOTAL_MIN * 100).toFixed(2);
+            const cls   = r.status === 'in_use' ? 'block-inuse' : 'block-reserved';
+            const lbl   = r.status === 'in_use' ? '使用中' : '予約済み';
+            const tip   = `${fmtTime(r.start_datetime)}〜${fmtTime(r.end_datetime)}`;
+            return `<div class="timeline-block ${cls}" style="left:${left}%;width:${width}%"
+                        title="${tip}">${tip}</div>`;
+        }).join('');
+    }
+
+    // ---- フィルターバー HTML ----
+    function buildFilterBarHTML(floorId) {
+        return `
+            <div class="timeline-filter-bar">
+                <span class="filter-bar-label">🔍 絞り込み</span>
+                <div class="filter-divider"></div>
+                <div class="filter-group">
+                    <span class="filter-group-label">種別：</span>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-type" value="desk" onchange="applyFilter(${floorId})"><span>打合せ机</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-type" value="conf" onchange="applyFilter(${floorId})"><span>会議室</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-type" value="free" onchange="applyFilter(${floorId})"><span>フリー</span></label>
+                </div>
+                <div class="filter-divider"></div>
+                <label class="filter-checkbox-wrap">
+                    <input type="checkbox" class="filter-monitor" onchange="applyFilter(${floorId})">
+                    <span>🖥️ モニターあり</span>
+                </label>
+                <div class="filter-divider"></div>
+                <div class="filter-group">
+                    <span class="filter-group-label">👥 人数：</span>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-cap" value="4" onchange="applyFilter(${floorId})"><span>4名</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-cap" value="6" onchange="applyFilter(${floorId})"><span>6名</span></label>
+                    <label class="filter-checkbox-wrap"><input type="checkbox" class="filter-cap" value="8" onchange="applyFilter(${floorId})"><span>8名</span></label>
+                </div>
+                <div class="filter-divider"></div>
+                <span class="filter-active-badge" id="badge-${floorId}">フィルター適用中</span>
+                <button class="btn-filter-reset" id="reset-${floorId}" onclick="applyFilterReset(${floorId})">✕ リセット</button>
+            </div>`;
+    }
+
+    // ============================================================
+    // カード再描画（refreshData用）
+    // ============================================================
+    function rebuildCards() {
+        floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
+            const def    = FLOOR_DEF[floor.floor_id];
+            const layout = document.getElementById(`floorLayout-${floor.floor_id}`);
+            if (!def || !layout) return;
+            layout.innerHTML = buildMapHTML(floor.floor_id, def);
         });
     }
 
-    function showTab(tab) {
+    function rebuildTimelines() {
+        floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
+            const el = document.getElementById(`tlRows-${floor.floor_id}`);
+            if (!el) return;
+            el.innerHTML = buildTimelineRowsHTML(floor.floor_id);
+            applyFilter(floor.floor_id);
+        });
+    }
+
+    // ============================================================
+    // サマリー
+    // ============================================================
+    function updateSummary() {
+        let total = 0, vacant = 0, inuse = 0, reserved = 0;
+        seatsData.forEach(s => {
+            total++;
+            const st = getStatus(s);
+            if (st === 'vacant')   vacant++;
+            else if (st === 'inuse')    inuse++;
+            else if (st === 'reserved') reserved++;
+        });
+        document.getElementById('sumTotal').textContent    = total;
+        document.getElementById('sumVacant').textContent   = vacant;
+        document.getElementById('sumInuse').textContent    = inuse;
+        document.getElementById('sumReserved').textContent = reserved;
+    }
+
+    // ============================================================
+    // フロア・タブ切替
+    // ============================================================
+    window.switchFloor = function(floorId) {
+        floorId = Number(floorId);
+        currentFloor = floorId;
+        document.querySelectorAll('.floor-panel').forEach(el => {
+            el.classList.toggle('active', Number(el.dataset.floorId) === floorId);
+        });
+        document.querySelectorAll('.floor-select-inline').forEach(sel => {
+            sel.value = floorId;
+        });
+        const def = FLOOR_DEF[floorId];
+        document.getElementById('floorBadge').textContent =
+            (def?.label || floorId) + ' 表示中';
+        showTab(currentTab);
+    };
+
+    window.showTab = function(tab) {
         currentTab = tab;
-        ['4','5','6'].forEach(f => {
-            const mapEl = document.getElementById('map-'      + f);
-            const tlEl  = document.getElementById('timeline-' + f);
-            if (!mapEl || !tlEl) return;
-            if (f === currentFloor) {
-                mapEl.style.display = tab === 'map'      ? 'block' : 'none';
-                tlEl.style.display  = tab === 'timeline' ? 'block' : 'none';
-            } else {
-                mapEl.style.display = 'none';
-                tlEl.style.display  = 'none';
-            }
+        floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
+            const show = floor.floor_id === currentFloor;
+            const mapEl = document.getElementById(`map-${floor.floor_id}`);
+            const tlEl  = document.getElementById(`timeline-${floor.floor_id}`);
+            if (mapEl) mapEl.style.display = (show && tab === 'map')      ? 'block' : 'none';
+            if (tlEl)  tlEl.style.display  = (show && tab === 'timeline') ? 'block' : 'none';
         });
         document.querySelectorAll('.tab-btn').forEach((btn, i) => {
             btn.classList.toggle('active',
                 (tab === 'map' && i === 0) || (tab === 'timeline' && i === 1));
         });
-        if (tab === 'timeline') {
-            requestAnimationFrame(() => updateNowLine(currentFloor));
-        }
-    }
+        if (tab === 'timeline') requestAnimationFrame(updateNowLine);
+    };
 
-    function updateSummary(floor) {
-        const d = summaryData[floor];
-        document.getElementById('sumTotal').textContent    = d.total;
-        document.getElementById('sumVacant').textContent   = d.vacant;
-        document.getElementById('sumInuse').textContent    = d.inuse;
-        document.getElementById('sumReserved').textContent = d.reserved;
-    }
-
-    function updateNowLine(floor) {
-        const now   = new Date();
+    // ============================================================
+    // 現在時刻ライン
+    // ============================================================
+    function updateNowLine() {
+        const now  = new Date();
         const hours = now.getHours() + now.getMinutes() / 60;
-        const start = 9, end = 18, range = end - start;
-        const pct   = ((hours - start) / range) * 100;
-
-        ['4','5','6'].forEach(f => {
-            const line  = document.getElementById('nowline-' + f);
-            const tbody = document.getElementById('tbody-'   + f);
+        const pct   = ((hours - START_HOUR) / (END_HOUR - START_HOUR)) * 100;
+        const inRange = hours >= START_HOUR && hours <= END_HOUR;
+        floorsData.filter(f => f.floor_id !== 1).forEach(floor => {
+            const line  = document.getElementById(`nowline-${floor.floor_id}`);
+            const tbody = document.getElementById(`tbody-${floor.floor_id}`);
             if (!line || !tbody) return;
-            if (hours < start || hours > end) { line.style.display = 'none'; return; }
-            line.style.display = 'block';
+            if (!inRange) { line.style.display = 'none'; return; }
             const track = tbody.querySelector('.timeline-track');
-            if (!track) return;
+            if (!track) { line.style.display = 'none'; return; }
             const tbRect    = tbody.getBoundingClientRect();
             const trackRect = track.getBoundingClientRect();
-            line.style.left = (trackRect.left - tbRect.left + (pct / 100) * trackRect.width) + 'px';
+            line.style.display = 'block';
+            line.style.left = ((trackRect.left - tbRect.left) + (pct / 100) * trackRect.width) + 'px';
         });
     }
+    setInterval(() => { if (currentTab === 'timeline') updateNowLine(); }, 60000);
+    window.addEventListener('resize', () => { if (currentTab === 'timeline') updateNowLine(); });
 
-    function openForm(name) {
-        document.getElementById('formDesk').value = name;
+    // ============================================================
+    // フィルター
+    // ============================================================
+    window.applyFilter = function(floorId) {
+        const tl = document.getElementById(`timeline-${floorId}`);
+        if (!tl) return;
+        const types      = [...tl.querySelectorAll('.filter-type:checked')].map(c => c.value);
+        const monitorOnly = tl.querySelector('.filter-monitor').checked;
+        const caps        = [...tl.querySelectorAll('.filter-cap:checked')].map(c => c.value);
+        const isActive    = types.length > 0 || monitorOnly || caps.length > 0;
+
+        document.getElementById(`badge-${floorId}`)?.classList.toggle('show', isActive);
+        document.getElementById(`reset-${floorId}`)?.classList.toggle('show', isActive);
+
+        document.getElementById(`tlRows-${floorId}`)
+            ?.querySelectorAll('.timeline-row').forEach(row => {
+            const rType = row.dataset.type || '';
+            if (rType.startsWith('section-')) {
+                const kind = rType.replace('section-', '');
+                row.classList.toggle('filtered-out', types.length > 0 && !types.includes(kind));
+                return;
+            }
+            const passType    = types.length === 0 || types.includes(rType);
+            const passMonitor = !monitorOnly || rType !== 'desk' || row.dataset.monitor === 'true';
+            const cap         = row.dataset.capacity || '';
+            const passCap     = caps.length === 0 || rType !== 'desk' || (cap && caps.includes(cap));
+            row.classList.toggle('filtered-out', !(passType && passMonitor && passCap));
+        });
+    };
+
+    window.applyFilterReset = function(floorId) {
+        const tl = document.getElementById(`timeline-${floorId}`);
+        if (!tl) return;
+        tl.querySelectorAll('.filter-type, .filter-cap').forEach(c => c.checked = false);
+        tl.querySelector('.filter-monitor').checked = false;
+        applyFilter(floorId);
+    };
+
+    // ============================================================
+    // 予約フォーム
+    // ============================================================
+    function buildTimeSelects() {
+        const startSel = document.getElementById('formStart');
+        const endSel   = document.getElementById('formEnd');
+        for (let h = START_HOUR; h < END_HOUR; h++) {
+            for (const m of [0, 30]) {
+                startSel.appendChild(new Option(`${h}:${m===0?'00':m}`, `${h}:${m===0?'00':m}`));
+            }
+        }
+        for (let h = START_HOUR; h <= END_HOUR; h++) {
+            for (const m of [0, 30]) {
+                if (h === START_HOUR && m === 0) continue;
+                if (h === END_HOUR   && m === 30) break;
+                endSel.appendChild(new Option(`${h}:${m===0?'00':m}`, `${h}:${m===0?'00':m}`));
+            }
+        }
+        startSel.value = '10:00';
+        endSel.value   = '11:00';
+    }
+
+    window.openForm = function(seatId, seatName) {
+        document.getElementById('formSeatId').value = seatId;
+        document.getElementById('formDesk').value   = seatName;
+        document.getElementById('formName').value   = '';
+        document.getElementById('formEmail').value  = '';
+        document.getElementById('formPassword').value = '';
         document.getElementById('formOverlay').classList.add('open');
-    }
-    function closeForm() {
+    };
+    window.closeForm = function() {
         document.getElementById('formOverlay').classList.remove('open');
-    }
+    };
     document.getElementById('formOverlay').addEventListener('click', function(e) {
         if (e.target === this) closeForm();
     });
 
-    // 初期化
-    updateSummary('4');
-    setInterval(() => { if (currentTab === 'timeline') updateNowLine(currentFloor); }, 60000);
-    window.addEventListener('resize', () => { if (currentTab === 'timeline') updateNowLine(currentFloor); });
+    window.submitReservation = async function() {
+        const seatId   = document.getElementById('formSeatId').value;
+        const name     = document.getElementById('formName').value.trim();
+        const email    = document.getElementById('formEmail').value.trim();
+        const password = document.getElementById('formPassword').value.trim();
+        const start    = document.getElementById('formStart').value;
+        const end      = document.getElementById('formEnd').value;
+
+        if (!name)                     { return showToast('⚠️ 予約者名を入力してください'); }
+        if (!email)                    { return showToast('⚠️ メールアドレスを入力してください'); }
+        if (!/^\d{4}$/.test(password)) { return showToast('⚠️ パスワードは4桁の数字で入力してください'); }
+
+        const today = new Date().toISOString().split('T')[0];
+        const toHHMM = s => { const [h,m]=s.split(':'); return `${h.padStart(2,'0')}:${(m||'00').padStart(2,'0')}`; };
+        const payload = {
+            user_id: 1, seat_id: parseInt(seatId),
+            start_datetime: `${today}T${toHHMM(start)}:00`,
+            end_datetime:   `${today}T${toHHMM(end)}:00`,
+            status: 'reserved', password,
+        };
+        try {
+            showLoading(true);
+            const res = await fetch(`${API_BASE}/api/reservations`, {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+            closeForm();
+            showToast('✅ 予約が完了しました');
+            await refreshData();
+        } catch(e) { showToast(`❌ 予約に失敗しました: ${e.message}`); }
+        finally { showLoading(false); }
+    };
+
+    // ============================================================
+    // キャンセル確認
+    // ============================================================
+    window.openConfirm = function(reservationId, seatName, timeRange) {
+        pendingCancelId = reservationId;
+        document.getElementById('confirmText').textContent =
+            `「${seatName}」の予約（${timeRange}）をキャンセルします。`;
+        document.getElementById('cancelPassword').value = '';
+        document.getElementById('confirmOverlay').classList.add('open');
+    };
+    window.closeConfirm = function() {
+        pendingCancelId = null;
+        document.getElementById('confirmOverlay').classList.remove('open');
+    };
+    window.executeCancel = async function() {
+        if (!pendingCancelId) return;
+        const password = document.getElementById('cancelPassword').value.trim();
+        if (!/^\d{4}$/.test(password)) { return showToast('⚠️ パスワードは4桁の数字で入力してください'); }
+        const id = pendingCancelId;
+        closeConfirm();
+        try {
+            showLoading(true);
+            const res = await fetch(`${API_BASE}/api/reservations/cancel/${id}`, {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ password }),
+            });
+            if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+            showToast('✅ 予約をキャンセルしました');
+            await refreshData();
+        } catch(e) { showToast(`❌ ${e.message}`); }
+        finally { showLoading(false); }
+    };
+
+    // ============================================================
+    // SignalR
+    // ============================================================
+    function connectSignalR() {
+        const dot  = document.getElementById('connDot');
+        const text = document.getElementById('connText');
+        dot.className = 'conn-dot connecting'; text.textContent = '接続中...';
+
+        const conn = new signalR.HubConnectionBuilder()
+            .withUrl(`${API_BASE}/api/negotiate`)
+            .withAutomaticReconnect([0, 3000, 10000, 30000])
+            .configureLogging(signalR.LogLevel.Warning)
+            .build();
+
+        conn.on('seatStatusUpdated', async () => { await refreshData(); });
+        conn.onclose(()       => { dot.className='conn-dot disconnected'; text.textContent='切断'; });
+        conn.onreconnecting(()=> { dot.className='conn-dot connecting';   text.textContent='再接続中...'; });
+        conn.onreconnected(() => { dot.className='conn-dot connected';    text.textContent='接続中'; });
+
+        conn.start()
+            .then(() => { dot.className='conn-dot connected'; text.textContent='接続中'; })
+            .catch(() => { dot.className='conn-dot disconnected'; text.textContent='接続失敗'; });
+    }
+
+    // ============================================================
+    // ユーティリティ
+    // ============================================================
+    function stColor(st) {
+        return st === 'inuse' ? '#e74c3c' : st === 'reserved' ? '#f39c12' : '#27ae60';
+    }
+    function stText(st) {
+        return st === 'inuse' ? '使用中' : st === 'reserved' ? '予約済み' : '空き';
+    }
+    function capToClass(cap) {
+        if (cap >= 8) return 'cap-8';
+        if (cap >= 6) return 'cap-6';
+        return 'cap-4';
+    }
+    function esc(s) { return String(s).replace(/'/g, "\\'"); }
+
+    function showLoading(show) {
+        document.getElementById('loadingOverlay').classList.toggle('open', show);
+    }
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 3500);
+    }
+
+})();
 </script>
 </body>
 </html>
